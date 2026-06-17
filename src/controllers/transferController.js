@@ -2,6 +2,18 @@ const db = require('../db');
 const { sendToProvider } = require('../providers');
 const { v4: uuidv4 } = require('uuid');
 
+const providerPrefixes = {
+  orange: ['072', '073', '074', '075', '076', '078', '079'],
+  africell: ['030', '033', '080', '088', '090', '077', '099'],
+  qmoney: ['032', '031', '034'],
+};
+
+function getCleanPrefix(number) {
+  const digits = number.replace(/\D/g, '');
+  const local = digits.startsWith('232') ? '0' + digits.slice(3) : digits;
+  return local.slice(0, 3);
+}
+
 exports.sendMoney = async (req, res) => {
   const { from_provider, to_provider, recipient, amount, note } = req.body;
   const userId = req.user.userId;
@@ -13,10 +25,26 @@ exports.sendMoney = async (req, res) => {
   if (amount < 5) {
     return res.status(400).json({ error: 'Minimum transfer amount is NLe 5' });
   }
+
+  if (providerPrefixes[to_provider]) {
+    const prefix = getCleanPrefix(recipient);
+    if (!providerPrefixes[to_provider].includes(prefix)) {
+      return res.status(400).json({ error: `This number doesn't match a valid ${to_provider} number` });
+    }
+  }
+
   const fee = Math.round(amount * 0.005);
   const totalDeducted = amount + fee;
 
   try {
+    const linkedCheck = await db.query(
+      'SELECT id FROM linked_accounts WHERE user_id = $1 AND provider_id = $2 AND is_active = true',
+      [userId, from_provider]
+    );
+    if (linkedCheck.rows.length === 0) {
+      return res.status(400).json({ error: `You haven't linked a ${from_provider} account yet. Link it first in the Accounts tab.` });
+    }
+
     const walletResult = await db.query(
       'SELECT id, balance FROM wallets WHERE user_id = $1',
       [userId]
