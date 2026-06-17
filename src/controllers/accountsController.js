@@ -1,5 +1,17 @@
 const db = require('../db');
 
+const providerPrefixes = {
+  orange: ['072', '073', '074', '075', '076', '078', '079'],
+  africell: ['030', '033', '080', '088', '090', '077', '099'],
+  qmoney: ['032', '031', '034'],
+};
+
+function getCleanPrefix(number) {
+  const digits = number.replace(/\D/g, '');
+  const local = digits.startsWith('232') ? '0' + digits.slice(3) : digits;
+  return local.slice(0, 3);
+}
+
 exports.getAccounts = async (req, res) => {
   const userId = req.user.userId;
   try {
@@ -20,6 +32,15 @@ exports.linkAccount = async (req, res) => {
 
   if (!provider_id || !account_number) {
     return res.status(400).json({ error: 'Provider and account number are required' });
+  }
+
+  if (providerPrefixes[provider_id]) {
+    const prefix = getCleanPrefix(account_number);
+    if (!providerPrefixes[provider_id].includes(prefix)) {
+      return res.status(400).json({
+        error: `This number doesn't match a valid prefix for this provider`
+      });
+    }
   }
 
   try {
