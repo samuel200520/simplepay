@@ -10,10 +10,9 @@ exports.sendMoney = async (req, res) => {
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
-  if (amount < 1000) {
-    return res.status(400).json({ error: 'Minimum transfer amount is Le 1,000' });
+  if (amount < 5) {
+    return res.status(400).json({ error: 'Minimum transfer amount is NLe 5' });
   }
-
   const fee = Math.round(amount * 0.005);
   const totalDeducted = amount + fee;
 
