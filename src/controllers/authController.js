@@ -22,7 +22,7 @@ exports.register = async (req, res) => {
 
     await db.query(
       'INSERT INTO wallets (user_id, balance) VALUES ($1, $2)',
-      [user.id, 2000000]
+      [user.id, 2000]
     );
 
     const token = jwt.sign(
