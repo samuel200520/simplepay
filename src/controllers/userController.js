@@ -1,5 +1,6 @@
 const db = require('../db');
 const { providers } = require('../providers');
+const bcrypt = require('bcryptjs');
 
 exports.getProfile = async (req, res) => {
   const userId = req.user.userId;
@@ -50,5 +51,48 @@ exports.getNetworkStats = async (req, res) => {
   } catch (err) {
     console.error('Stats error:', err);
     res.status(500).json({ error: 'Could not fetch stats' });
+  }
+};
+
+exports.setPin = async (req, res) => {
+  const userId = req.user.userId;
+  const { pin } = req.body;
+
+  if (!pin || pin.length !== 4 || !/^\d{4}$/.test(pin)) {
+    return res.status(400).json({ error: 'PIN must be exactly 4 digits' });
+  }
+
+  try {
+    const salt = await bcrypt.genSalt(10);
+    const pinHash = await bcrypt.hash(pin, salt);
+    await db.query('UPDATE users SET transaction_pin = $1 WHERE id = $2', [pinHash, userId]);
+    res.json({ success: true, message: 'Transaction PIN set successfully' });
+  } catch (err) {
+    console.error('Set PIN error:', err);
+    res.status(500).json({ error: 'Could not set PIN' });
+  }
+};
+
+exports.verifyPin = async (req, res) => {
+  const userId = req.user.userId;
+  const { pin } = req.body;
+
+  try {
+    const result = await db.query('SELECT transaction_pin FROM users WHERE id = $1', [userId]);
+    const user = result.rows[0];
+
+    if (!user.transaction_pin) {
+      return res.status(400).json({ error: 'NO_PIN', message: 'No transaction PIN set' });
+    }
+
+    const valid = await bcrypt.compare(pin, user.transaction_pin);
+    if (!valid) {
+      return res.status(401).json({ error: 'WRONG_PIN', message: 'Incorrect PIN' });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Verify PIN error:', err);
+    res.status(500).json({ error: 'Could not verify PIN' });
   }
 };
