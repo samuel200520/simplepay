@@ -33,7 +33,15 @@ exports.sendMoney = async (req, res) => {
     }
   }
 
-  const fee = Math.round(amount * 0.005);
+  function calculateFee(amount) {
+    if (amount <= 50) return 1;
+    if (amount <= 200) return 3;
+    if (amount <= 500) return 7;
+    if (amount <= 1000) return 12;
+    return Math.round(amount * 0.01);
+  }
+
+  const fee = calculateFee(amount);
   const totalDeducted = amount + fee;
 
   try {
