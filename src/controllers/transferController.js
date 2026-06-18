@@ -74,6 +74,24 @@ exports.sendMoney = async (req, res) => {
 
     const providerResult = await sendToProvider(to_provider, recipient, amount);
 
+    const cleanRecipient = recipient.replace(/\D/g, '');
+    const recipientAccount = await db.query(
+      `SELECT la.user_id, w.id as wallet_id FROM linked_accounts la
+       JOIN wallets w ON w.user_id = la.user_id
+       WHERE la.provider_id = $1 AND la.account_number LIKE $2 AND la.is_active = true
+       LIMIT 1`,
+      [to_provider, '%' + cleanRecipient.slice(-9)]
+    );
+
+    let creditedInternally = false;
+    if (recipientAccount.rows.length > 0) {
+      await db.query(
+        'UPDATE wallets SET balance = balance + $1 WHERE id = $2',
+        [amount, recipientAccount.rows[0].wallet_id]
+      );
+      creditedInternally = true;
+    }
+
     await db.query(
       "UPDATE transactions SET status = 'completed', completed_at = NOW() WHERE reference = $1",
       [reference]
@@ -89,6 +107,7 @@ exports.sendMoney = async (req, res) => {
       new_balance: newBalance,
       provider_reference: providerResult.providerReference,
       settled_at: providerResult.settledAt,
+      credited_internally: creditedInternally,
     });
   } catch (err) {
     console.error('Transfer error:', err);
