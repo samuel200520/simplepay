@@ -10,6 +10,48 @@ exports.login = async (req, res) => {
   res.json({ token });
 };
 
+exports.getOverview = async (req, res) => {
+  try {
+    const usersResult = await db.query('SELECT COUNT(*) as total_users FROM users');
+    const txnResult = await db.query(
+      `SELECT 
+        COUNT(*) as total_transactions,
+        COALESCE(SUM(amount), 0) as total_volume,
+        COALESCE(SUM(fee), 0) as total_revenue
+       FROM transactions WHERE status = 'completed'`
+    );
+    const reversedResult = await db.query(
+      "SELECT COUNT(*) as total_reversed FROM transactions WHERE status = 'reversed'"
+    );
+
+    res.json({
+      total_users: usersResult.rows[0].total_users,
+      total_transactions: txnResult.rows[0].total_transactions,
+      total_volume: txnResult.rows[0].total_volume,
+      total_revenue: txnResult.rows[0].total_revenue,
+      total_reversed: reversedResult.rows[0].total_reversed,
+    });
+  } catch (err) {
+    console.error('Admin overview error:', err);
+    res.status(500).json({ error: 'Could not fetch overview' });
+  }
+};
+
+exports.getAllUsers = async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT u.id, u.full_name, u.phone, u.email, u.created_at, w.balance
+       FROM users u
+       LEFT JOIN wallets w ON w.user_id = u.id
+       ORDER BY u.created_at DESC`
+    );
+    res.json({ users: result.rows });
+  } catch (err) {
+    console.error('Admin get users error:', err);
+    res.status(500).json({ error: 'Could not fetch users' });
+  }
+};
+
 exports.getAllTransactions = async (req, res) => {
   try {
     const result = await db.query(

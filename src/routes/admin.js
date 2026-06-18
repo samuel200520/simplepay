@@ -4,6 +4,8 @@ const adminAuth = require('../middleware/adminAuth');
 const adminController = require('../controllers/adminController');
 
 router.post('/login', adminController.login);
+router.get('/overview', adminAuth, adminController.getOverview);
+router.get('/users', adminAuth, adminController.getAllUsers);
 router.get('/transactions', adminAuth, adminController.getAllTransactions);
 router.post('/transactions/:reference/reverse', adminAuth, adminController.reverseTransaction);
 
