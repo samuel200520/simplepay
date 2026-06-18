@@ -89,6 +89,18 @@ exports.sendMoney = async (req, res) => {
         'UPDATE wallets SET balance = balance + $1 WHERE id = $2',
         [amount, recipientAccount.rows[0].wallet_id]
       );
+
+      const senderResult = await db.query('SELECT full_name, phone FROM users WHERE id = $1', [userId]);
+      const senderName = senderResult.rows[0]?.full_name || 'Someone';
+
+      const incomingReference = 'SMP-' + uuidv4().replace(/-/g, '').slice(0, 12).toUpperCase();
+      await db.query(
+        `INSERT INTO transactions
+          (reference, sender_user_id, receiver_identifier, from_provider, to_provider, amount, fee, total_deducted, note, status, completed_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'completed', NOW())`,
+        [incomingReference, recipientAccount.rows[0].user_id, senderName, from_provider, to_provider, amount, 0, amount, note || null]
+      );
+
       creditedInternally = true;
     }
 
@@ -119,7 +131,9 @@ exports.getHistory = async (req, res) => {
   const userId = req.user.userId;
   try {
     const result = await db.query(
-      `SELECT * FROM transactions WHERE sender_user_id = $1 ORDER BY created_at DESC LIMIT 50`,
+      `SELECT *,
+        CASE WHEN fee = 0 THEN 'received' ELSE 'sent' END as direction
+       FROM transactions WHERE sender_user_id = $1 ORDER BY created_at DESC LIMIT 50`,
       [userId]
     );
     res.json({ transactions: result.rows });
