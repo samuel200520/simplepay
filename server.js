@@ -6,6 +6,7 @@ const authRoutes = require('./src/routes/auth');
 const transferRoutes = require('./src/routes/transfer');
 const userRoutes = require('./src/routes/user');
 const accountsRoutes = require('./src/routes/accounts');
+const adminRoutes = require('./src/routes/admin');
 
 const app = express();
 
@@ -16,6 +17,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/transfer', transferRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/accounts', accountsRoutes);
+app.use('/api/admin', adminRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'SimplePay API running', timestamp: new Date().toISOString() });
