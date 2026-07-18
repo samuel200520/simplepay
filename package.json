@@ -1,0 +1,12 @@
+{
+  "name": "simplepay",
+  "version": "1.0.0",
+  "description": "SimplePay - Unified Payment Platform",
+  "scripts": {
+    "build": "npm run build --prefix frontend",
+    "dev": "npm run dev --prefix backend"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
