@@ -39,6 +39,82 @@ async function runStartupMigrations() {
     if (missingAccountUsers.rows.length > 0) {
       console.log(`Generated SimplePay account numbers for ${missingAccountUsers.rows.length} users`);
     }
+
+    const tables = await db.query(
+      `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`
+    );
+    const existingTables = new Set(tables.rows.map(r => r.table_name));
+
+    if (!existingTables.has('linked_wallets')) {
+      await db.query(`CREATE TABLE linked_wallets (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        provider_id VARCHAR(50) NOT NULL,
+        account_number VARCHAR(100) NOT NULL,
+        account_name VARCHAR(255),
+        wallet_name VARCHAR(255),
+        is_active BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(user_id, provider_id, account_number)
+      )`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_linked_wallets_user_id ON linked_wallets(user_id)`);
+      console.log('Created linked_wallets table');
+    }
+
+    if (!existingTables.has('wallet_balances')) {
+      await db.query(`CREATE TABLE wallet_balances (
+        id SERIAL PRIMARY KEY,
+        linked_wallet_id INTEGER UNIQUE NOT NULL,
+        balance DECIMAL(15, 2) DEFAULT 0.00,
+        currency VARCHAR(3) DEFAULT 'SLE',
+        last_sync TIMESTAMP DEFAULT NOW()
+      )`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_wallet_balances_linked_wallet_id ON wallet_balances(linked_wallet_id)`);
+      console.log('Created wallet_balances table');
+    }
+
+    if (!existingTables.has('wallet_transactions')) {
+      await db.query(`CREATE TABLE wallet_transactions (
+        id SERIAL PRIMARY KEY,
+        wallet_id INTEGER NOT NULL REFERENCES wallets(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        type VARCHAR(50) NOT NULL,
+        amount DECIMAL(15, 2) NOT NULL,
+        currency VARCHAR(3) DEFAULT 'SLE',
+        balance_before DECIMAL(15, 2) NOT NULL,
+        balance_after DECIMAL(15, 2) NOT NULL,
+        reference VARCHAR(100),
+        from_provider VARCHAR(50),
+        to_provider VARCHAR(50),
+        from_wallet_id INTEGER REFERENCES wallets(id),
+        to_wallet_id INTEGER REFERENCES wallets(id),
+        from_linked_wallet_id INTEGER REFERENCES linked_wallets(id),
+        to_linked_wallet_id INTEGER REFERENCES linked_wallets(id),
+        status VARCHAR(50) DEFAULT 'completed',
+        note TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        completed_at TIMESTAMP
+      )`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_wallet_transactions_user_id ON wallet_transactions(user_id)`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_wallet_transactions_wallet_id ON wallet_transactions(wallet_id)`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_wallet_transactions_created_at ON wallet_transactions(created_at DESC)`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_wallet_transactions_reference ON wallet_transactions(reference)`);
+      console.log('Created wallet_transactions table');
+    }
+
+    if (!existingTables.has('sync_logs')) {
+      await db.query(`CREATE TABLE sync_logs (
+        id SERIAL PRIMARY KEY,
+        linked_wallet_id INTEGER REFERENCES linked_wallets(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        status VARCHAR(50) DEFAULT 'success',
+        message TEXT,
+        synced_at TIMESTAMP DEFAULT NOW()
+      )`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_sync_logs_user_id ON sync_logs(user_id)`);
+      console.log('Created sync_logs table');
+    }
   } catch (err) {
     console.error('Startup migration error:', err);
   }

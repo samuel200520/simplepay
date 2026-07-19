@@ -78,6 +78,7 @@ exports.linkAccount = async (req, res) => {
     // Try to insert into linked_wallets (new table for multi-wallet support)
     // If table doesn't exist yet, that's okay — we fall back to linked_accounts
     const hasLinkedWallets = await db.getTableExists('linked_wallets');
+    let linkedWalletId = legacyResult.rows[0].id;
     if (hasLinkedWallets) {
       try {
         const newResult = await client.query(
@@ -85,19 +86,24 @@ exports.linkAccount = async (req, res) => {
            VALUES ($1, $2, $3, $4, $5, true) RETURNING *`,
           [userId, provider_id, account_number, walletName, walletName]
         );
-
-        // Create initial wallet_balance entry if table exists
-        const hasWalletBalances = await db.getTableExists('wallet_balances');
-        if (hasWalletBalances) {
-          await client.query(
-            `INSERT INTO wallet_balances (linked_wallet_id, balance, currency, last_sync)
-             VALUES ($1, 0, 'SLE', NOW())
-             ON CONFLICT (linked_wallet_id) DO NOTHING`,
-            [newResult.rows[0].id]
-          );
-        }
+        linkedWalletId = newResult.rows[0].id;
       } catch (err) {
         console.error('linked_wallets insert failed (non-critical):', err.message);
+      }
+    }
+
+    // Create initial wallet_balance entry if table exists
+    const hasWalletBalances = await db.getTableExists('wallet_balances');
+    if (hasWalletBalances) {
+      try {
+        await client.query(
+          `INSERT INTO wallet_balances (linked_wallet_id, balance, currency, last_sync)
+           VALUES ($1, 0, 'SLE', NOW())
+           ON CONFLICT (linked_wallet_id) DO NOTHING`,
+          [linkedWalletId]
+        );
+      } catch (err) {
+        console.error('wallet_balances insert failed (non-critical):', err.message);
       }
     }
 
