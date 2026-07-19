@@ -4,10 +4,16 @@ const db = require('./index');
 
 async function migrate() {
   try {
+    const baseSchemaPath = path.join(__dirname, 'base_schema.sql');
     const schemaPath = path.join(__dirname, 'schema.sql');
+    const baseSchema = fs.readFileSync(baseSchemaPath, 'utf8');
     const schema = fs.readFileSync(schemaPath, 'utf8');
 
-    console.log('Running database migration...');
+    console.log('Running base schema migration...');
+    await db.query(baseSchema);
+    console.log('✓ Base schema completed');
+
+    console.log('Running multi-wallet schema migration...');
     await db.query(schema);
     console.log('✓ Migration completed successfully');
     
