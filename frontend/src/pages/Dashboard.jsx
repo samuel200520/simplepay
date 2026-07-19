@@ -194,6 +194,9 @@ export default function Dashboard() {
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: '12px', opacity: 0.7 }}>Welcome back</div>
             <div style={{ fontSize: '14px', fontWeight: 500 }}>{user?.full_name?.split(' ')[0]} {user?.full_name?.split(' ')[1]?.[0]}.</div>
+            {user?.simplepay_account_number && (
+              <div style={{ fontSize: '11px', color: '#7edeab', marginTop: '2px' }}>Account: {user.simplepay_account_number}</div>
+            )}
             <button onClick={logout} style={s.logoutBtn}>Sign out</button>
           </div>
         </div>
@@ -440,6 +443,16 @@ export default function Dashboard() {
                 );
               })}
 
+              <div style={{ ...s.sectionTitle, marginTop: '24px' }}>Your SimplePay Account</div>
+              {user?.simplepay_account_number && (
+                <div style={{ background: '#e6f7ed', border: '1px solid #a8dfc0', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: '12px', color: '#555', marginBottom: '4px' }}>Your SimplePay account number</div>
+                    <div style={{ fontSize: '18px', fontWeight: 600, color: '#1a6b3c', letterSpacing: '1px' }}>{user.simplepay_account_number}</div>
+                    <div style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>Share this to receive money</div>
+                  </div>
+                </div>
+              )}
               <div style={{ ...s.sectionTitle, marginTop: '24px' }}>Transaction PIN</div>
               {pinSetMsg && <div style={{ ...s.errorBox, background: pinSetMsg.includes('success') ? '#e6f7ed' : '#fde8e8', color: pinSetMsg.includes('success') ? '#1a6b3c' : '#a32d2d' }}>{pinSetMsg}</div>}
               <label style={s.label}>New PIN</label>
