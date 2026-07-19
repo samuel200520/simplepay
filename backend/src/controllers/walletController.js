@@ -1,6 +1,7 @@
 const db = require('../db');
 const { getAdapter } = require('../providers/adapters/registry');
 const { v4: uuidv4 } = require('uuid');
+const { calculateTransactionFee } = require('../utils/feeCalculator');
 
 function mapProviderToWalletName(providerId, accountNumber) {
   const p = String(providerId || '').toLowerCase();
@@ -234,15 +235,9 @@ exports.transferBetweenWallets = async (req, res) => {
     return res.status(400).json({ error: 'Minimum transfer amount is NLe 5' });
   }
 
-  function calculateFee(a) {
-    if (a <= 50) return 1;
-    if (a <= 200) return 3;
-    if (a <= 500) return 7;
-    if (a <= 1000) return 12;
-    return Math.round(a * 0.01);
-  }
-
-  const fee = calculateFee(transferAmount);
+  const fromProviderForFee = fromProvider || (String(fromWalletId).startsWith('simplepay-') ? 'simplepay' : 'bank');
+  const toProviderForFee = toProvider || 'simplepay';
+  const { fee, transferType } = calculateTransactionFee(transferAmount, fromProviderForFee, toProviderForFee);
   const totalDeducted = transferAmount + fee;
   const reference = 'SMP-' + uuidv4().replace(/-/g, '').slice(0, 12).toUpperCase();
 

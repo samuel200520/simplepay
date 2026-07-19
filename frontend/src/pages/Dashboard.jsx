@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import WalletCarousel from '../components/WalletCarousel';
 import client from '../api/client';
+import { calculateTransactionFee } from '../utils/feeCalculator';
 
 export default function Dashboard() {
   const { user, logout, fetchProfile } = useAuth();
@@ -296,16 +297,27 @@ export default function Dashboard() {
                     <span style={s.currencyBadge}>NLe</span>
                     <input style={{ ...s.inputAmount, flex: 1 }} type="number" min="5" placeholder="50" id="amountInput" value={amount} onChange={e => setAmount(e.target.value)} />
                   </div>
-                  {amount && parseFloat(amount) >= 5 && (
-                    <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>
-                      Fee: NLe {calculateFee(amount).toLocaleString()} · Total: NLe {(parseFloat(amount) + calculateFee(amount)).toLocaleString()}
-                    </div>
-                  )}
-                  {!amount || parseFloat(amount) < 5 ? (
+                  {amount && parseFloat(amount) >= 5 && (() => {
+                    const fromEl = document.getElementById('fromSelect');
+                    const fromId = fromEl?.value || '';
+                    const toId = selectedToId || '';
+                    const fromWallet = walletCards.find(w => w.id === fromId);
+                    const toWallet = walletCards.find(w => w.id === toId);
+                    const toProviderObj = providers.find(p => p.id === toId);
+                    const fromProvider = fromWallet?.provider || 'simplepay';
+                    const toProvider = toWallet?.provider || toProviderObj?.id || 'simplepay';
+                    const { fee: computedFee, total } = calculateTransactionFee(amount, fromProvider, toProvider);
+                    return (
+                      <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>
+                        Fee: NLe {computedFee.toLocaleString()} · Total: NLe {total.toLocaleString()}
+                      </div>
+                    );
+                  })()}
+                  {(!amount || parseFloat(amount) < 5) && (
                     <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>
                       Min: NLe 5
                     </div>
-                  ) : null}
+                  )}
 
                   <button style={s.btn} id="sendBtn" onClick={() => {
                     const fromEl = document.getElementById('fromSelect');
@@ -342,11 +354,11 @@ export default function Dashboard() {
                   </div>
                   <div style={s.receiptCard}>
                     {[
-                      ['Reference', lastTxn.reference],
+                      ['From', lastTxn.from_provider || 'Wallet'],
+                      ['To', lastTxn.to_provider || 'Wallet'],
                       ['Amount', `NLe ${Number(lastTxn.amount).toLocaleString()}`],
                       ['Fee', `NLe ${Number(lastTxn.fee || 0).toLocaleString()}`],
-                      ['Total', `NLe ${Number(lastTxn.total_deducted).toLocaleString()}`],
-                      ['New balance', `NLe ${Number(lastTxn.new_balance).toLocaleString()}`],
+                      ['Total Debit', `NLe ${Number(lastTxn.total_deducted || lastTxn.amount).toLocaleString()}`],
                     ].map(([k, v]) => (
                       <div key={k} style={s.receiptRow}><span style={{ color: '#888' }}>{k}</span><span style={{ fontWeight: 500 }}>{v}</span></div>
                     ))}
@@ -436,6 +448,7 @@ export default function Dashboard() {
                     </div>
                     <div style={{ color: isReversed ? '#888' : isReceived ? '#1a6b3c' : '#a32d2d', fontWeight: 500, fontSize: '14px', textDecoration: isReversed ? 'line-through' : 'none' }}>
                       {isReceived ? '+' : '-'}NLe {Number(t.amount).toLocaleString()}
+                      {!isReceived && t.fee ? <div style={{ fontSize: '11px', fontWeight: 400 }}>Fee: NLe {Number(t.fee).toLocaleString()}</div> : null}
                     </div>
                   </div>
                 );

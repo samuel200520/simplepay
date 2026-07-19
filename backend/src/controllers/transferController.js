@@ -1,6 +1,7 @@
 const db = require('../db');
 const { sendToProvider } = require('../providers');
 const { v4: uuidv4 } = require('uuid');
+const { calculateTransactionFee } = require('../utils/feeCalculator');
 
 const providerPrefixes = {
   orange: ['072', '073', '074', '075', '076', '078', '079'],
@@ -33,15 +34,7 @@ exports.sendMoney = async (req, res) => {
     }
   }
 
-  function calculateFee(amount) {
-    if (amount <= 50) return 1;
-    if (amount <= 200) return 3;
-    if (amount <= 500) return 7;
-    if (amount <= 1000) return 12;
-    return Math.round(amount * 0.01);
-  }
-
-  const fee = calculateFee(amount);
+  const { fee } = calculateTransactionFee(amount, from_provider, to_provider);
   const totalDeducted = amount + fee;
 
   try {
