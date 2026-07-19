@@ -72,6 +72,8 @@ async function runStartupMigrations() {
       )`);
       await db.query(`CREATE INDEX IF NOT EXISTS idx_wallet_balances_linked_wallet_id ON wallet_balances(linked_wallet_id)`);
       console.log('Created wallet_balances table');
+    } else {
+      await db.query(`ALTER TABLE wallet_balances DROP CONSTRAINT IF EXISTS wallet_balances_linked_wallet_id_fkey`);
     }
 
     if (!existingTables.has('wallet_transactions')) {
@@ -103,6 +105,11 @@ async function runStartupMigrations() {
       await db.query(`CREATE INDEX IF NOT EXISTS idx_wallet_transactions_created_at ON wallet_transactions(created_at DESC)`);
       await db.query(`CREATE INDEX IF NOT EXISTS idx_wallet_transactions_reference ON wallet_transactions(reference)`);
       console.log('Created wallet_transactions table');
+    } else {
+      await db.query(`ALTER TABLE wallet_transactions DROP CONSTRAINT IF EXISTS wallet_transactions_from_linked_wallet_id_fkey`);
+      await db.query(`ALTER TABLE wallet_transactions DROP CONSTRAINT IF EXISTS wallet_transactions_to_linked_wallet_id_fkey`);
+      await db.query(`ALTER TABLE wallet_transactions DROP CONSTRAINT IF EXISTS wallet_transactions_linked_wallet_id_fkey`);
+      console.log('Dropped wallet_transactions FK constraints on linked wallet IDs');
     }
 
     if (!existingTables.has('sync_logs')) {
@@ -116,6 +123,8 @@ async function runStartupMigrations() {
       )`);
       await db.query(`CREATE INDEX IF NOT EXISTS idx_sync_logs_user_id ON sync_logs(user_id)`);
       console.log('Created sync_logs table');
+    } else {
+      await db.query(`ALTER TABLE sync_logs DROP CONSTRAINT IF EXISTS sync_logs_linked_wallet_id_fkey`);
     }
   } catch (err) {
     console.error('Startup migration error:', err);
