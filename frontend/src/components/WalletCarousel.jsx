@@ -75,8 +75,7 @@ export default function WalletCarousel({ wallets, onSelect, selectedId }) {
             key={w.id}
             style={{
               ...styles.cardWrapper,
-              transform: `scale(${i === currentIndex ? 1 : 0.92})`,
-              opacity: i === currentIndex ? 1 : 0.5,
+              opacity: 1,
               transition: 'transform 0.3s, opacity 0.3s',
             }}
             onClick={() => {

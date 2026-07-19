@@ -60,13 +60,7 @@ exports.linkAccount = async (req, res) => {
       [userId, provider_id, account_number]
     );
 
-    // Check if already exists in linked_wallets (new)
-    const existingNew = await client.query(
-      'SELECT id FROM linked_wallets WHERE user_id = $1 AND provider_id = $2 AND account_number = $3',
-      [userId, provider_id, account_number]
-    );
-
-    if (existingLegacy.rows.length > 0 || existingNew.rows.length > 0) {
+    if (existingLegacy.rows.length > 0) {
       await client.query('ROLLBACK');
       return res.status(409).json({ error: 'This account is already linked' });
     }
@@ -81,20 +75,26 @@ exports.linkAccount = async (req, res) => {
       [userId, provider_id, account_number, walletName]
     );
 
-    // Insert into linked_wallets (new table for multi-wallet support)
-    const newResult = await client.query(
-      `INSERT INTO linked_wallets (user_id, provider_id, account_number, account_name, wallet_name, is_active)
-       VALUES ($1, $2, $3, $4, $5, true) RETURNING *`,
-      [userId, provider_id, account_number, walletName, walletName]
-    );
+    // Try to insert into linked_wallets (new table for multi-wallet support)
+    // If table doesn't exist yet, that's okay — we fall back to linked_accounts
+    let newResult = null;
+    try {
+      newResult = await client.query(
+        `INSERT INTO linked_wallets (user_id, provider_id, account_number, account_name, wallet_name, is_active)
+         VALUES ($1, $2, $3, $4, $5, true) RETURNING *`,
+        [userId, provider_id, account_number, walletName, walletName]
+      );
 
-    // Create initial wallet_balance entry
-    await client.query(
-      `INSERT INTO wallet_balances (linked_wallet_id, balance, currency, last_sync)
-       VALUES ($1, 0, 'SLE', NOW())
-       ON CONFLICT (linked_wallet_id) DO NOTHING`,
-      [newResult.rows[0].id]
-    );
+      // Create initial wallet_balance entry
+      await client.query(
+        `INSERT INTO wallet_balances (linked_wallet_id, balance, currency, last_sync)
+         VALUES ($1, 0, 'SLE', NOW())
+         ON CONFLICT (linked_wallet_id) DO NOTHING`,
+        [newResult.rows[0].id]
+      );
+    } catch (err) {
+      console.error('linked_wallets insert failed (table may not exist yet):', err.message);
+    }
 
     await client.query('COMMIT');
 

@@ -39,23 +39,6 @@ exports.getWalletCards = async (req, res) => {
       [userId]
     );
 
-    // Get cached balances for linked wallets
-    const linkedIds = linked.rows.map(r => r.id);
-    let balanceMap = {};
-    if (linkedIds.length > 0) {
-      try {
-        const balResult = await db.query(
-          `SELECT linked_wallet_id, balance, currency, last_sync FROM wallet_balances WHERE linked_wallet_id = ANY($1::int[])`,
-          [linkedIds]
-        );
-        for (const row of balResult.rows) {
-          balanceMap[row.linked_wallet_id] = { balance: Number(row.balance), currency: row.currency, lastSync: row.last_sync };
-        }
-      } catch (err) {
-        console.error('wallet_balances query failed (table may not exist yet):', err.message);
-      }
-    }
-
     const cards = [];
 
     // Always add SimplePay wallet first
@@ -74,16 +57,15 @@ exports.getWalletCards = async (req, res) => {
     // Add linked wallets
     for (const la of linked.rows) {
       const provider = la.provider_id;
-      const cached = balanceMap[la.id] || {};
       cards.push({
         id: `linked-${la.id}`,
         provider: provider,
         walletName: la.account_name || mapProviderToWalletName(provider, la.account_number),
         accountNumber: la.account_number,
-        balance: cached.balance ?? 0,
-        currency: cached.currency || 'SLE',
+        balance: 0,
+        currency: 'SLE',
         status: 'Linked',
-        lastSync: cached.lastSync || null,
+        lastSync: null,
         _internal: { linkedAccountId: la.id },
       });
     }
@@ -111,18 +93,28 @@ exports.syncWallet = async (req, res) => {
 
     if (String(walletId).startsWith('linked-')) {
       const linkedAccountId = walletId.split('-')[1];
-      const la = await db.query(
-        'SELECT id, provider_id, account_number FROM linked_accounts WHERE id = $1 AND user_id = $2 AND is_active = true',
-        [linkedAccountId, userId]
-      );
-      if (!la.rows.length) return res.status(404).json({ error: 'Wallet not found' });
+      let la = null;
+      try {
+        la = await db.query(
+          'SELECT id, provider_id, account_number FROM linked_wallets WHERE id = $1 AND user_id = $2 AND is_active = true',
+          [linkedAccountId, userId]
+        );
+      } catch (err) {
+        console.error('linked_wallets query failed, falling back to linked_accounts:', err.message);
+      }
+      if (!la || !la.rows.length) {
+        la = await db.query(
+          'SELECT id, provider_id, account_number FROM linked_accounts WHERE id = $1 AND user_id = $2 AND is_active = true',
+          [linkedAccountId, userId]
+        );
+        if (!la.rows.length) return res.status(404).json({ error: 'Wallet not found' });
+      }
 
       const { provider_id, account_number } = la.rows[0];
       const adapter = getAdapter(provider_id);
       const sync = await adapter.getBalance({ accountNumber: account_number, userId });
 
       // If wallet_balances exists, update it. Otherwise just return the synced value.
-      // (We keep it resilient to missing tables.)
       try {
         await db.query(
           `INSERT INTO wallet_balances (linked_wallet_id, balance, currency, last_sync)
@@ -260,11 +252,16 @@ exports.transferBetweenWallets = async (req, res) => {
       fromWallet = r.rows[0];
     } else if (String(fromWalletId).startsWith('linked-')) {
       const linkedWalletId = String(fromWalletId).split('-')[1];
-      let la = await client.query(
-        'SELECT * FROM linked_wallets WHERE id = $1 AND user_id = $2 AND is_active = true',
-        [linkedWalletId, userId]
-      );
-      if (!la.rows.length) {
+      let la = null;
+      try {
+        la = await client.query(
+          'SELECT * FROM linked_wallets WHERE id = $1 AND user_id = $2 AND is_active = true',
+          [linkedWalletId, userId]
+        );
+      } catch (err) {
+        console.error('linked_wallets query failed, falling back to linked_accounts:', err.message);
+      }
+      if (!la || !la.rows.length) {
         la = await client.query(
           'SELECT * FROM linked_accounts WHERE id = $1 AND user_id = $2 AND is_active = true',
           [linkedWalletId, userId]
@@ -312,11 +309,16 @@ exports.transferBetweenWallets = async (req, res) => {
         toWallet = w.rows[0];
       } else if (String(toWalletId).startsWith('linked-')) {
         const linkedWalletId = String(toWalletId).split('-')[1];
-        let la = await client.query(
-          'SELECT id, provider_id, account_number FROM linked_wallets WHERE id = $1 AND user_id = $2 AND is_active = true',
-          [linkedWalletId, userId]
-        );
-        if (!la.rows.length) {
+        let la = null;
+        try {
+          la = await client.query(
+            'SELECT id, provider_id, account_number FROM linked_wallets WHERE id = $1 AND user_id = $2 AND is_active = true',
+            [linkedWalletId, userId]
+          );
+        } catch (err) {
+          console.error('linked_wallets query failed, falling back to linked_accounts:', err.message);
+        }
+        if (!la || !la.rows.length) {
           la = await client.query(
             'SELECT id, provider_id, account_number FROM linked_accounts WHERE id = $1 AND user_id = $2 AND is_active = true',
             [linkedWalletId, userId]
