@@ -43,12 +43,16 @@ exports.getWalletCards = async (req, res) => {
     const linkedIds = linked.rows.map(r => r.id);
     let balanceMap = {};
     if (linkedIds.length > 0) {
-      const balResult = await db.query(
-        `SELECT linked_wallet_id, balance, currency, last_sync FROM wallet_balances WHERE linked_wallet_id = ANY($1::int[])`,
-        [linkedIds]
-      );
-      for (const row of balResult.rows) {
-        balanceMap[row.linked_wallet_id] = { balance: Number(row.balance), currency: row.currency, lastSync: row.last_sync };
+      try {
+        const balResult = await db.query(
+          `SELECT linked_wallet_id, balance, currency, last_sync FROM wallet_balances WHERE linked_wallet_id = ANY($1::int[])`,
+          [linkedIds]
+        );
+        for (const row of balResult.rows) {
+          balanceMap[row.linked_wallet_id] = { balance: Number(row.balance), currency: row.currency, lastSync: row.last_sync };
+        }
+      } catch (err) {
+        console.error('wallet_balances query failed (table may not exist yet):', err.message);
       }
     }
 

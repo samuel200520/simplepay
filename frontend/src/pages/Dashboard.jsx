@@ -13,6 +13,7 @@ export default function Dashboard() {
   const [lastTxn, setLastTxn] = useState(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
   const [notification, setNotification] = useState(null);
 
   // Link account form
@@ -32,11 +33,13 @@ export default function Dashboard() {
   useEffect(() => {
     // Load all data on mount — providers first so they always show
     const loadData = async () => {
+      setLoadError('');
       try {
         const pRes = await client.get('/user/providers');
         setProviders(pRes.data.providers);
       } catch (err) {
         console.error('load providers error:', err);
+        setLoadError('Failed to load providers');
       }
 
       try {
@@ -51,6 +54,7 @@ export default function Dashboard() {
         checkForNewActivity(txnRes.data.transactions);
       } catch (err) {
         console.error('load wallets/accounts/history error:', err);
+        setLoadError(err.response?.data?.error || 'Failed to load wallet data');
       }
     };
     loadData();
@@ -110,7 +114,9 @@ export default function Dashboard() {
       }
       setNewAccount({ provider_id: '', account_number: '' });
     } catch (err) {
-      setLinkError(err.response?.data?.error || 'Could not link account');
+      const msg = err.response?.data?.error || err.message || 'Could not link account';
+      setLinkError(msg);
+      console.error('Link account error:', err.response?.data || err.message);
     } finally {
       setLinkingAccount(false);
     }
@@ -236,6 +242,7 @@ export default function Dashboard() {
         </div>
 
         <div style={s.content}>
+          {loadError && <div style={s.errorBox}>{loadError}</div>}
           {error && <div style={s.errorBox}>{error}</div>}
 
           {/* === SEND TAB === */}
