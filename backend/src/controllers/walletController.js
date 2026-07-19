@@ -248,6 +248,7 @@ exports.transferBetweenWallets = async (req, res) => {
 
   const hasLinkedWallets = await db.getTableExists('linked_wallets');
   const hasWalletTransactions = await db.getTableExists('wallet_transactions');
+  const hasWalletBalances = await db.getTableExists('wallet_balances');
   
   const client = await db.pool.connect();
   
@@ -492,22 +493,6 @@ exports.transferBetweenWallets = async (req, res) => {
       await client.query('UPDATE wallets SET balance = balance - $1 WHERE id = $2', [totalDeducted, fromWallet.id]);
     }
 
-    if (fromLinkedWallet) {
-      const hasWalletBalances = await db.getTableExists('wallet_balances');
-      if (hasWalletBalances) {
-        try {
-          await client.query(
-            `INSERT INTO wallet_balances (linked_wallet_id, balance, currency, last_sync)
-             VALUES ($1, -$2, 'SLE', NOW())
-             ON CONFLICT (linked_wallet_id) DO UPDATE SET balance = wallet_balances.balance + EXCLUDED.balance, last_sync = EXCLUDED.last_sync`,
-            [fromLinkedWallet.id, transferAmount]
-          );
-        } catch (err) {
-          console.error('wallet_balances debit failed:', err.message);
-        }
-      }
-    }
-
     await client.query(
       `INSERT INTO transactions
         (reference, sender_user_id, receiver_identifier, from_provider, to_provider, amount, fee, total_deducted, note, status)
@@ -547,19 +532,6 @@ exports.transferBetweenWallets = async (req, res) => {
       }
       creditedInternally = true;
     } else if (toLinkedWallet) {
-      const hasWalletBalances = await db.getTableExists('wallet_balances');
-      if (hasWalletBalances) {
-        try {
-          await client.query(
-            `INSERT INTO wallet_balances (linked_wallet_id, balance, currency, last_sync)
-             VALUES ($1, $2, 'SLE', NOW())
-             ON CONFLICT (linked_wallet_id) DO UPDATE SET balance = wallet_balances.balance + EXCLUDED.balance, last_sync = EXCLUDED.last_sync`,
-            [toLinkedWallet.id, transferAmount]
-          );
-        } catch (err) {
-          console.error('wallet_balances credit failed:', err.message);
-        }
-      }
       if (toWallet) {
         await client.query('UPDATE wallets SET balance = balance + $1 WHERE id = $2', [transferAmount, toWallet.id]);
       }
@@ -593,6 +565,33 @@ exports.transferBetweenWallets = async (req, res) => {
     const newBalance = newBalanceRow.rows[0] ? newBalanceRow.rows[0].balance : null;
 
     await client.query('COMMIT');
+
+    if (hasWalletBalances) {
+      if (fromLinkedWallet) {
+        try {
+          await db.query(
+            `INSERT INTO wallet_balances (linked_wallet_id, balance, currency, last_sync)
+             VALUES ($1, -$2, 'SLE', NOW())
+             ON CONFLICT (linked_wallet_id) DO UPDATE SET balance = wallet_balances.balance + EXCLUDED.balance, last_sync = EXCLUDED.last_sync`,
+            [fromLinkedWallet.id, transferAmount]
+          );
+        } catch (err) {
+          console.error('wallet_balances debit failed:', err.message);
+        }
+      }
+      if (toLinkedWallet) {
+        try {
+          await db.query(
+            `INSERT INTO wallet_balances (linked_wallet_id, balance, currency, last_sync)
+             VALUES ($1, $2, 'SLE', NOW())
+             ON CONFLICT (linked_wallet_id) DO UPDATE SET balance = wallet_balances.balance + EXCLUDED.balance, last_sync = EXCLUDED.last_sync`,
+            [toLinkedWallet.id, transferAmount]
+          );
+        } catch (err) {
+          console.error('wallet_balances credit failed:', err.message);
+        }
+      }
+    }
 
     res.json({
       success: true,
