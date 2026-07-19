@@ -149,19 +149,49 @@ exports.syncWallet = async (req, res) => {
 };
 
 exports.getWalletHistory = async (req, res) => {
-  // TEMPORARY: for now, return user-level transfer history
-  // because wallet-level ledger is not implemented yet.
   const userId = req.user.userId;
+  const { walletId } = req.params;
   try {
-    const result = await db.query(
-      `SELECT *,
-        CASE WHEN fee = 0 THEN 'received' ELSE 'sent' END as direction
-       FROM transactions
-       WHERE sender_user_id = $1
-       ORDER BY created_at DESC
-       LIMIT 50`,
-      [userId]
-    );
+    // Use the new wallet_transactions ledger. Falls back to legacy transactions table
+    // if no wallet_transactions exist for this user.
+    let query = `
+      SELECT wt.*, w.balance as wallet_balance,
+        CASE WHEN wt.type = 'transfer_in' THEN 'received' ELSE 'sent' END as direction
+      FROM wallet_transactions wt
+      LEFT JOIN wallets w ON wt.wallet_id = w.id AND w.user_id = $1
+      WHERE wt.user_id = $1
+    `;
+    const params = [userId];
+
+    if (walletId) {
+      if (String(walletId).startsWith('simplepay-')) {
+        const walletRowId = String(walletId).split('-')[1];
+        query += ` AND wt.wallet_id = $2`;
+        params.push(walletRowId);
+      } else if (String(walletId).startsWith('linked-')) {
+        const linkedWalletId = String(walletId).split('-')[1];
+        query += ` AND (wt.to_linked_wallet_id = $2 OR wt.from_linked_wallet_id = $2)`;
+        params.push(linkedWalletId);
+      }
+    }
+
+    query += ` ORDER BY wt.created_at DESC LIMIT 50`;
+    const result = await db.query(query, params);
+    
+    // Fallback: if no wallet_transactions exist, try legacy table
+    if (result.rows.length === 0) {
+      const legacyResult = await db.query(
+        `SELECT *,
+          CASE WHEN fee = 0 THEN 'received' ELSE 'sent' END as direction
+         FROM transactions
+         WHERE sender_user_id = $1
+         ORDER BY created_at DESC
+         LIMIT 50`,
+        [userId]
+      );
+      return res.json({ transactions: legacyResult.rows });
+    }
+
     res.json({ transactions: result.rows });
   } catch (err) {
     console.error('getWalletHistory error:', err);
@@ -340,6 +370,22 @@ exports.transferBetweenWallets = async (req, res) => {
       ]
     );
 
+    // Record fee as a separate ledger entry for revenue tracking
+    if (fee > 0) {
+      await client.query(
+        `INSERT INTO wallet_transactions
+          (wallet_id, user_id, type, amount, currency, balance_before, balance_after,
+           reference, from_provider, to_provider, from_wallet_id, status, note)
+         VALUES ($1, $2, 'fee', $3, $4, $5, $6, $7, $8, $9, $10, 'completed', $11)`,
+        [
+          fromWallet.id, userId, fee, fromWallet.currency || 'SLE',
+          fromWallet.balance - totalDeducted + fee, fromWallet.balance - totalDeducted,
+          reference, fromProvider, 'simplepay', fromWallet.id,
+          'Transfer fee'
+        ]
+      );
+    }
+
     await client.query('UPDATE wallets SET balance = balance - $1 WHERE id = $2', [totalDeducted, fromWallet.id]);
 
     await client.query(
@@ -444,17 +490,20 @@ exports.getWalletTransactions = async (req, res) => {
     if (walletId) {
       if (String(walletId).startsWith('simplepay-')) {
         const walletRowId = String(walletId).split('-')[1];
-        query += ` AND wt.wallet_id = $${params.length + 1}`;
+        query += ` AND wt.wallet_id = $2`;
         params.push(walletRowId);
       } else if (String(walletId).startsWith('linked-')) {
         const linkedWalletId = String(walletId).split('-')[1];
-        query += ` AND wt.to_linked_wallet_id = $${params.length + 1} OR wt.from_linked_wallet_id = $${params.length + 1}`;
+        query += ` AND (wt.to_linked_wallet_id = $2 OR wt.from_linked_wallet_id = $2)`;
         params.push(linkedWalletId);
       }
     }
 
-    query += ` ORDER BY wt.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-    params.push(limit, offset);
+    const limitNum = parseInt(limit) || 50;
+    const offsetNum = parseInt(offset) || 0;
+    const paramIdx = params.length + 1;
+    query += ` ORDER BY wt.created_at DESC LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`;
+    params.push(limitNum, offsetNum);
 
     const result = await db.query(query, params);
     res.json({ transactions: result.rows });
@@ -463,4 +512,3 @@ exports.getWalletTransactions = async (req, res) => {
     res.status(500).json({ error: 'Could not fetch wallet transactions' });
   }
 };
-

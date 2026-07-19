@@ -263,9 +263,7 @@ export default function Dashboard() {
                 <>
                   <div style={s.sectionTitle}>From</div>
                   <div style={s.providerGrid}>
-                    {walletCards.map(w => {
-                      const provider = providers.find(p => p.id === w.provider);
-                      const isSimplePay = w.provider === 'SimplePay';
+                    {walletCards.filter(w => w.provider === 'SimplePay').map(w => {
                       return (
                         <div 
                           key={w.id} 
@@ -276,15 +274,15 @@ export default function Dashboard() {
                           onClick={() => setSelectedFrom({ 
                             id: w.id, 
                             name: w.walletName || w.provider,
-                            short: isSimplePay ? 'SP' : provider?.short || '??',
-                            color: isSimplePay ? '#1a6b3c' : provider?.color || '#888',
-                            type: isSimplePay ? 'wallet' : 'linked',
+                            short: 'SP',
+                            color: '#1a6b3c',
+                            type: 'wallet',
                             balance: w.balance
                           })}
                         >
-                          <div style={{ ...s.providerIcon, background: isSimplePay ? '#1a6b3c' : provider?.color }}>{isSimplePay ? 'SP' : provider?.short}</div>
+                          <div style={{ ...s.providerIcon, background: '#1a6b3c' }}>SP</div>
                           <div style={s.providerName}>{w.walletName || w.provider}</div>
-                          <div style={s.providerType}>{isSimplePay ? 'Wallet' : 'Linked · NLe ' + Number(w.balance).toLocaleString()}</div>
+                          <div style={s.providerType}>Wallet</div>
                         </div>
                       );
                     })}

@@ -26,7 +26,14 @@ export default function DashboardScreen() {
     client.get('/wallets').then(r => setWallets(r.data.wallets)).catch(() => {});
   }, []);
 
-  const fee = form.amount ? Math.round(parseFloat(form.amount) * 0.005) : 0;
+  function calculateFee(amount) {
+    if (amount <= 50) return 1;
+    if (amount <= 200) return 3;
+    if (amount <= 500) return 7;
+    if (amount <= 1000) return 12;
+    return Math.round(amount * 0.01);
+  }
+  const fee = form.amount ? calculateFee(parseFloat(form.amount)) : 0;
   const total = form.amount ? parseFloat(form.amount) + fee : 0;
 
   const handleSend = async () => {
@@ -112,9 +119,7 @@ export default function DashboardScreen() {
               <View>
                 <Text style={styles.sectionTitle}>FROM</Text>
                 <View style={styles.providerGrid}>
-                  {wallets.map(w => {
-                    const provider = providers.find(p => p.id === w.provider);
-                    const isSimplePay = w.provider === 'SimplePay';
+                  {wallets.filter(w => w.provider === 'SimplePay').map(w => {
                     return (
                       <TouchableOpacity 
                         key={w.id} 
@@ -122,17 +127,17 @@ export default function DashboardScreen() {
                         onPress={() => setSelectedFrom({ 
                           id: w.id, 
                           name: w.walletName || w.provider,
-                          short: isSimplePay ? 'SP' : provider?.short || '??',
-                          color: isSimplePay ? '#1a6b3c' : provider?.color || '#888',
-                          type: isSimplePay ? 'wallet' : 'linked',
+                          short: 'SP',
+                          color: '#1a6b3c',
+                          type: 'wallet',
                           balance: w.balance
                         })}
                       >
-                        <View style={[styles.providerIcon, { backgroundColor: isSimplePay ? '#1a6b3c' : provider?.color }]}>
-                          <Text style={styles.providerIconText}>{isSimplePay ? 'SP' : provider?.short}</Text>
+                        <View style={[styles.providerIcon, { backgroundColor: '#1a6b3c' }]}>
+                          <Text style={styles.providerIconText}>SP</Text>
                         </View>
                         <Text style={styles.providerName}>{w.walletName || w.provider}</Text>
-                        <Text style={styles.providerType}>{isSimplePay ? 'Wallet' : 'Linked'}</Text>
+                        <Text style={styles.providerType}>Wallet</Text>
                       </TouchableOpacity>
                     );
                   })}
@@ -181,7 +186,7 @@ export default function DashboardScreen() {
                   <View style={styles.currencyBadge}><Text style={styles.currencyText}>Le</Text></View>
                   <TextInput style={[styles.input, { flex: 1 }]} placeholder="50000" value={form.amount} onChangeText={v => setForm({ ...form, amount: v })} keyboardType="numeric" />
                 </View>
-                <Text style={styles.feeText}>Fee: 0.5% = Le {fee.toLocaleString()} · Total: Le {total.toLocaleString()}</Text>
+                <Text style={styles.feeText}>Fee: Le {fee.toLocaleString()} · Total: Le {total.toLocaleString()}</Text>
                 <Text style={styles.label}>Note (optional)</Text>
                 <TextInput style={styles.input} placeholder="e.g. School fees" value={form.note} onChangeText={v => setForm({ ...form, note: v })} />
                 <TouchableOpacity style={[styles.btn, (!form.recipient || !form.amount) && styles.btnDisabled]} disabled={!form.recipient || !form.amount} onPress={() => setStep(3)}>
@@ -202,7 +207,7 @@ export default function DashboardScreen() {
                     ['To', selectedTo?.name],
                     ['Recipient', form.recipient],
                     ['Amount', `Le ${Number(form.amount).toLocaleString()}`],
-                    ['Fee (0.5%)', `Le ${fee.toLocaleString()}`],
+                    ['Fee', `Le ${fee.toLocaleString()}`],
                     ['Total deducted', `Le ${total.toLocaleString()}`],
                     ...(form.note ? [['Note', form.note]] : []),
                   ].map(([k, v]) => (

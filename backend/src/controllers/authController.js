@@ -63,7 +63,7 @@ exports.login = async (req, res) => {
 
   try {
     const result = await db.query(
-      'SELECT id, full_name, phone, simplepay_account_number FROM users WHERE phone = $1',
+      'SELECT id, full_name, phone, password_hash, simplepay_account_number FROM users WHERE phone = $1',
       [phone]
     );
     if (result.rows.length === 0) {
