@@ -243,7 +243,7 @@ export default function Dashboard() {
                   </select>
 
                   {/* TO: linked wallets + all providers */}
-                  <div style={s.sectionTitle} style={{ marginTop: '16px' }}>TO</div>
+                  <div style={{ ...s.sectionTitle, marginTop: '16px' }}>TO</div>
                   <select style={s.select} id="toSelect">
                     <option value="">Select destination</option>
                     <optgroup label="Your Linked Accounts">
@@ -262,7 +262,7 @@ export default function Dashboard() {
                     </optgroup>
                   </select>
 
-                  <div style={s.sectionTitle} style={{ marginTop: '16px' }}>Amount (NLe)</div>
+                  <div style={{ ...s.sectionTitle, marginTop: '16px' }}>Amount (NLe)</div>
                   <div style={s.amountRow}>
                     <span style={s.currencyBadge}>NLe</span>
                     <input style={s.inputAmount} type="number" min="5" placeholder="50" id="amountInput" />
