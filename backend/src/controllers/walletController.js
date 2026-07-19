@@ -413,13 +413,13 @@ exports.transferBetweenWallets = async (req, res) => {
           (wallet_id, user_id, type, amount, currency, balance_before, balance_after, 
            reference, from_provider, to_provider, from_wallet_id, to_wallet_id, 
            from_linked_wallet_id, to_linked_wallet_id, status, note)
-         VALUES ($1, $2, 'transfer_out', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending', $13)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
         [
-          fromWallet.id, userId, totalDeducted, fromWallet.currency || 'SLE',
+          fromWallet.id, userId, 'transfer_out', totalDeducted, fromWallet.currency || 'SLE',
           fromWallet.balance, fromWallet.balance - totalDeducted,
           reference, fromProvider, resolvedToProvider, fromWallet.id, toWallet?.id || null,
           fromLinkedWallet?.id || null, toLinkedWallet?.id || null,
-          note || null
+          'pending', note || null
         ]
       );
     }
@@ -429,12 +429,12 @@ exports.transferBetweenWallets = async (req, res) => {
         `INSERT INTO wallet_transactions
           (wallet_id, user_id, type, amount, currency, balance_before, balance_after,
            reference, from_provider, to_provider, from_wallet_id, status, note)
-         VALUES ($1, $2, 'fee', $3, $4, $5, $6, $7, $8, $9, $10, 'completed', $11)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
         [
-          fromWallet.id, userId, fee, fromWallet.currency || 'SLE',
+          fromWallet.id, userId, 'fee', fee, fromWallet.currency || 'SLE',
           fromWallet.balance - totalDeducted + fee, fromWallet.balance - totalDeducted,
           reference, fromProvider, 'simplepay', fromWallet.id,
-          'Transfer fee'
+          'completed', 'Transfer fee'
         ]
       );
     }
@@ -469,12 +469,12 @@ exports.transferBetweenWallets = async (req, res) => {
             (wallet_id, user_id, type, amount, currency, balance_before, balance_after,
              reference, from_provider, to_provider, from_wallet_id, to_wallet_id,
              from_linked_wallet_id, to_linked_wallet_id, status, note)
-           VALUES ($1, $2, 'transfer_in', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'completed', $13)`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
           [
-            toWallet.id, toUserId || userId, transferAmount, toWallet.currency || 'SLE',
+            toWallet.id, toUserId || userId, 'transfer_in', transferAmount, toWallet.currency || 'SLE',
             balanceBefore, balanceAfter, reference, fromProvider, resolvedToProvider,
             fromWallet.id, toWallet.id, fromLinkedWallet?.id || null, toLinkedWallet?.id || null,
-            note || null
+            'completed', note || null
           ]
         );
       }
@@ -502,12 +502,12 @@ exports.transferBetweenWallets = async (req, res) => {
             (wallet_id, user_id, type, amount, currency, balance_before, balance_after,
              reference, from_provider, to_provider, from_wallet_id, to_wallet_id,
              from_linked_wallet_id, to_linked_wallet_id, status, note)
-           VALUES ($1, $2, 'transfer_in', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'completed', $13)`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
           [
-            toWallet?.id || fromWallet.id, toUserId || userId, transferAmount, toWallet?.currency || 'SLE',
+            toWallet?.id || fromWallet.id, toUserId || userId, 'transfer_in', transferAmount, toWallet?.currency || 'SLE',
             0, transferAmount, reference, fromProvider, resolvedToProvider,
             fromWallet.id, toWallet?.id || null, fromLinkedWallet?.id || null, toLinkedWallet.id,
-            note || null
+            'completed', note || null
           ]
         );
       }
