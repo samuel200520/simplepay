@@ -20,16 +20,6 @@ export default function Dashboard() {
   const [selectedToId, setSelectedToId] = useState('');
   const [amount, setAmount] = useState('');
 
-  const calculateFee = (a) => {
-    const num = parseFloat(a);
-    if (!num || num < 5) return 0;
-    if (num <= 50) return 1;
-    if (num <= 200) return 3;
-    if (num <= 500) return 7;
-    if (num <= 1000) return 12;
-    return Math.round(num * 0.01);
-  };
-
   // Link account form
   const [newAccount, setNewAccount] = useState({ provider_id: '', account_number: '' });
   const [linkingAccount, setLinkingAccount] = useState(false);
