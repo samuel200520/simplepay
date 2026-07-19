@@ -17,6 +17,17 @@ export default function Dashboard() {
   const [notification, setNotification] = useState(null);
   const [recipient, setRecipient] = useState('');
   const [selectedToId, setSelectedToId] = useState('');
+  const [amount, setAmount] = useState('');
+
+  const calculateFee = (a) => {
+    const num = parseFloat(a);
+    if (!num || num < 5) return 0;
+    if (num <= 50) return 1;
+    if (num <= 200) return 3;
+    if (num <= 500) return 7;
+    if (num <= 1000) return 12;
+    return Math.round(num * 0.01);
+  };
 
   // Link account form
   const [newAccount, setNewAccount] = useState({ provider_id: '', account_number: '' });
@@ -283,18 +294,23 @@ export default function Dashboard() {
                   <div style={{ ...s.sectionTitle, marginTop: '16px' }}>Amount (NLe)</div>
                   <div style={s.amountRow}>
                     <span style={s.currencyBadge}>NLe</span>
-                    <input style={{ ...s.inputAmount, flex: 1 }} type="number" min="5" placeholder="50" id="amountInput" />
+                    <input style={{ ...s.inputAmount, flex: 1 }} type="number" min="5" placeholder="50" id="amountInput" value={amount} onChange={e => setAmount(e.target.value)} />
                   </div>
-                  <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>
-                    Fee: NLe 0 · Min: NLe 5
-                  </div>
+                  {amount && parseFloat(amount) >= 5 && (
+                    <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>
+                      Fee: NLe {calculateFee(amount).toLocaleString()} · Total: NLe {(parseFloat(amount) + calculateFee(amount)).toLocaleString()}
+                    </div>
+                  )}
+                  {!amount || parseFloat(amount) < 5 ? (
+                    <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>
+                      Min: NLe 5
+                    </div>
+                  ) : null}
 
                   <button style={s.btn} id="sendBtn" onClick={() => {
                     const fromEl = document.getElementById('fromSelect');
-                    const amtEl = document.getElementById('amountInput');
                     const fromId = fromEl.value;
                     const toId = selectedToId;
-                    const amount = amtEl.value;
                     if (!fromId || !toId || !amount || parseFloat(amount) < 5) {
                       setError('Please select FROM wallet, TO destination, and enter amount (min NLe 5)');
                       return;

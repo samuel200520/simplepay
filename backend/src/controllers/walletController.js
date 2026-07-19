@@ -487,11 +487,7 @@ exports.transferBetweenWallets = async (req, res) => {
       );
     }
 
-    if (fromLinkedWallet) {
-      await client.query('UPDATE wallets SET balance = balance - $1 WHERE id = $2', [fee, fromWallet.id]);
-    } else {
-      await client.query('UPDATE wallets SET balance = balance - $1 WHERE id = $2', [totalDeducted, fromWallet.id]);
-    }
+    await client.query('UPDATE wallets SET balance = balance - $1 WHERE id = $2', [totalDeducted, fromWallet.id]);
 
     await client.query(
       `INSERT INTO transactions
