@@ -1,16 +1,16 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import WalletCarousel from '../components/WalletCarousel';
-import TransferForm from '../components/TransferForm';
-import * as WalletService from '../services/WalletService';
+import client from '../api/client';
 
 export default function Dashboard() {
-  const { user, logout } = useAuth();
+  const { user, logout, fetchProfile } = useAuth();
   const [tab, setTab] = useState('send');
-  const [wallets, setWallets] = useState([]);
   const [providers, setProviders] = useState([]);
-  const [linkedAccounts, setLinkedAccounts] = useState([]);
   const [transactions, setTransactions] = useState([]);
+  const [linkedAccounts, setLinkedAccounts] = useState([]);
+  const [walletCards, setWalletCards] = useState([]);
+  const [lastTxn, setLastTxn] = useState(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [notification, setNotification] = useState(null);
@@ -29,27 +29,28 @@ export default function Dashboard() {
   const [settingPin, setSettingPin] = useState(false);
   const [pinSetMsg, setPinSetMsg] = useState('');
 
-  const loadData = useCallback(async () => {
-    try {
-      const [w, p] = await Promise.all([
-        WalletService.fetchWallets(),
-        WalletService.fetchProviders(),
-      ]);
-      setWallets(w);
-      setProviders(p);
-    } catch (err) {
-      console.error('loadData error:', err);
-    }
-  }, []);
-
   useEffect(() => {
+    // Load all data on mount
+    const loadData = async () => {
+      try {
+        const [wRes, pRes, acctsRes, txnRes] = await Promise.all([
+          client.get('/wallets'),
+          client.get('/user/providers'),
+          client.get('/accounts'),
+          client.get('/transfer/history'),
+        ]);
+        setWalletCards(wRes.data.wallets);
+        setProviders(pRes.data.providers);
+        setLinkedAccounts(acctsRes.data.accounts);
+        setTransactions(txnRes.data.transactions);
+        checkForNewActivity(txnRes.data.transactions);
+      } catch (err) {
+        console.error('loadData error:', err);
+      }
+    };
     loadData();
-    WalletService.fetchTransactions().then(txns => {
-      setTransactions(txns);
-      checkForNewActivity(txns);
-    }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadData]);
+  }, []);
 
   const checkForNewActivity = (txns) => {
     const lastSeen = localStorage.getItem('simplepay_last_seen_txn');
@@ -64,13 +65,23 @@ export default function Dashboard() {
     localStorage.setItem('simplepay_last_seen_txn', mostRecent.reference);
   };
 
-  const fetchAccounts = async () => {
+  const refreshWallets = async () => {
     try {
-      const { default: client } = await import('../api/client');
-      const res = await client.get('/accounts');
-      setLinkedAccounts(res.data.accounts);
-      const w = await WalletService.fetchWallets();
-      setWallets(w);
+      const wRes = await client.get('/wallets');
+      setWalletCards(wRes.data.wallets);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const refreshAccounts = async () => {
+    try {
+      const [acctsRes, wRes] = await Promise.all([
+        client.get('/accounts'),
+        client.get('/wallets'),
+      ]);
+      setLinkedAccounts(acctsRes.data.accounts);
+      setWalletCards(wRes.data.wallets);
     } catch (err) {
       console.error(err);
     }
@@ -81,8 +92,8 @@ export default function Dashboard() {
     setLinkingAccount(true);
     setLinkError('');
     try {
-      await WalletService.linkAccount(newAccount.provider_id, newAccount.account_number);
-      await fetchAccounts();
+      await client.post('/accounts', newAccount);
+      await refreshAccounts();
       setNewAccount({ provider_id: '', account_number: '' });
     } catch (err) {
       setLinkError(err.response?.data?.error || 'Could not link account');
@@ -92,8 +103,8 @@ export default function Dashboard() {
   };
 
   const handleUnlinkAccount = async (id) => {
-    await WalletService.unlinkAccount(id);
-    await fetchAccounts();
+    await client.delete(`/accounts/${id}`);
+    await refreshAccounts();
   };
 
   const handleSetPin = async () => {
@@ -108,7 +119,7 @@ export default function Dashboard() {
     setSettingPin(true);
     setPinSetMsg('');
     try {
-      await WalletService.setPin(newPin);
+      await client.post('/user/set-pin', { pin: newPin });
       setPinSetMsg('PIN set successfully!');
       setShowSetPin(false);
       setNewPin('');
@@ -120,41 +131,47 @@ export default function Dashboard() {
     }
   };
 
-  const handleSend = async (payload) => {
-    setError('');
-    setSending(true);
+  const handlePinVerify = async () => {
+    if (pin.length !== 4) { setPinError('Enter your 4-digit PIN'); return; }
+    setPinError('');
     try {
-      // First verify PIN
-      if (!pin && !showSetPin) {
-        const verifyRes = await WalletService.verifyPin(pin);
-        if (!verifyRes.success) {
-          setPinError('Incorrect PIN');
-          setSending(false);
-          return;
-        }
-      }
-      const result = await WalletService.transferBetweenWallets(payload);
-      // Refresh wallets
-      const w = await WalletService.fetchWallets();
-      setWallets(w);
-      const txns = await WalletService.fetchTransactions();
-      setTransactions(txns);
-      setPin('');
-      return result;
+      const verifyRes = await client.post('/user/verify-pin', { pin });
+      return verifyRes.data.success;
     } catch (err) {
       if (err.response?.data?.error === 'NO_PIN') {
         setShowSetPin(true);
         setPinError('You need to set a transaction PIN first');
       } else {
-        setError(err.response?.data?.error || 'Transfer failed');
+        setPinError('Incorrect PIN. Try again.');
       }
-      throw err;
+      return false;
+    }
+  };
+
+  const handleSend = async (payload) => {
+    setError('');
+    setSending(true);
+    try {
+      // Verify PIN first
+      const pinOk = await handlePinVerify();
+      if (!pinOk) { setSending(false); return; }
+
+      const res = await client.post('/wallets/transfers', payload);
+      setLastTxn(res.data);
+      await fetchProfile();
+      await refreshWallets();
+      const txnRes = await client.get('/transfer/history');
+      setTransactions(txnRes.data.transactions);
+      setPin('');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Transfer failed');
     } finally {
       setSending(false);
     }
   };
 
   const resetSend = () => {
+    setLastTxn(null);
     setError('');
     setPin('');
     setPinError('');
@@ -164,7 +181,7 @@ export default function Dashboard() {
   return (
     <div style={s.page}>
       <div style={s.app}>
-        {/* Notification banner */}
+
         {notification && (
           <div style={{ ...s.notificationBanner, background: notification.type === 'received' ? '#e6f7ed' : '#fff4e5', borderColor: notification.type === 'received' ? '#a8dfc0' : '#ffd699' }}>
             <span style={{ fontSize: '16px', marginRight: '8px' }}>{notification.type === 'received' ? '💰' : '↩️'}</span>
@@ -173,11 +190,13 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Header */}
         <div style={s.header}>
-          <div>
-            <div style={s.logo}>Simple<span style={{ color: '#7edeab' }}>Pay</span></div>
-            <div style={s.headerSub}>Unified Payments · Sierra Leone</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <img src="/logo.svg" alt="SimplePay" style={s.logoImg} />
+            <div>
+              <div style={s.logo}>Simple<span style={{ color: '#7edeab' }}>Pay</span></div>
+              <div style={s.headerSub}>Unified Payments · Sierra Leone</div>
+            </div>
           </div>
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: '12px', opacity: 0.7 }}>Welcome back</div>
@@ -189,12 +208,11 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Wallet Carousel — replaces old balance bar */}
+        {/* Wallet Carousel */}
         <div style={s.carouselSection}>
-          <WalletCarousel wallets={wallets} />
+          <WalletCarousel wallets={walletCards} />
         </div>
 
-        {/* Tabs */}
         <div style={s.tabs}>
           {['send', 'accounts', 'history', 'network'].map(t => (
             <div key={t} style={{ ...s.tab, ...(tab === t ? s.tabActive : {}) }} onClick={() => { setTab(t); resetSend(); }}>
@@ -204,63 +222,135 @@ export default function Dashboard() {
         </div>
 
         <div style={s.content}>
-          {/* Error */}
           {error && <div style={s.errorBox}>{error}</div>}
 
-          {/* Send Tab */}
+          {/* === SEND TAB === */}
           {tab === 'send' && (
             <div>
               <div style={s.networkBadge}>● Network live — {providers.length} providers connected</div>
-              <TransferForm
-                wallets={wallets}
-                providers={providers}
-                onSend={handleSend}
-                sending={sending}
-              />
 
-              {/* PIN entry (simplified) */}
-              {pinError && <div style={s.errorBox}>{pinError}</div>}
+              {!lastTxn ? (
+                <>
+                  {/* FROM: SimplePay wallet + linked wallets */}
+                  <div style={s.sectionTitle}>FROM</div>
+                  <select style={s.select} id="fromSelect">
+                    <option value="">Select source wallet</option>
+                    {walletCards.map(w => (
+                      <option key={w.id} value={w.id}>
+                        {w.walletName} — NLe {Number(w.balance).toLocaleString()}
+                      </option>
+                    ))}
+                  </select>
 
-              {showSetPin ? (
-                <div style={s.pinBox}>
-                  <div style={s.pinTitle}>🔐 Set a Transaction PIN</div>
-                  <div style={{ fontSize: '13px', color: '#888', marginBottom: '16px' }}>
-                    You need a 4-digit PIN to confirm transfers
+                  {/* TO: linked wallets + all providers */}
+                  <div style={s.sectionTitle} style={{ marginTop: '16px' }}>TO</div>
+                  <select style={s.select} id="toSelect">
+                    <option value="">Select destination</option>
+                    <optgroup label="Your Linked Accounts">
+                      {walletCards.filter(w => w.provider !== 'SimplePay').map(w => (
+                        <option key={w.id} value={w.id}>
+                          {w.walletName} — NLe {Number(w.balance).toLocaleString()}
+                        </option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="All Providers">
+                      {providers.map(p => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  </select>
+
+                  <div style={s.sectionTitle} style={{ marginTop: '16px' }}>Amount (NLe)</div>
+                  <div style={s.amountRow}>
+                    <span style={s.currencyBadge}>NLe</span>
+                    <input style={s.inputAmount} type="number" min="5" placeholder="50" id="amountInput" />
                   </div>
-                  <label style={s.label}>New PIN</label>
-                  <input style={{ ...s.input, letterSpacing: '8px', fontSize: '20px', textAlign: 'center' }} type="password" maxLength={4} placeholder="••••" value={newPin} onChange={e => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))} />
-                  <label style={s.label}>Confirm PIN</label>
-                  <input style={{ ...s.input, letterSpacing: '8px', fontSize: '20px', textAlign: 'center' }} type="password" maxLength={4} placeholder="••••" value={confirmPin} onChange={e => setConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 4))} />
-                  {pinSetMsg && <div style={{ ...s.errorBox, marginTop: '8px', background: pinSetMsg.includes('success') ? '#e6f7ed' : '#fde8e8', color: pinSetMsg.includes('success') ? '#1a6b3c' : '#a32d2d' }}>{pinSetMsg}</div>}
-                  <button style={{ ...s.btn, opacity: newPin.length === 4 && confirmPin.length === 4 ? 1 : 0.5 }} disabled={newPin.length !== 4 || confirmPin.length !== 4 || settingPin} onClick={handleSetPin}>
-                    {settingPin ? 'Setting PIN...' : 'Set PIN & continue'}
+                  <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>
+                    Fee: NLe 0 · Min: NLe 5
+                  </div>
+
+                  <button style={s.btn} id="sendBtn" onClick={() => {
+                    const fromEl = document.getElementById('fromSelect');
+                    const toEl = document.getElementById('toSelect');
+                    const amtEl = document.getElementById('amountInput');
+                    const fromId = fromEl.value;
+                    const toId = toEl.value;
+                    const amount = amtEl.value;
+                    if (!fromId || !toId || !amount || parseFloat(amount) < 5) {
+                      setError('Please select FROM wallet, TO destination, and enter amount (min NLe 5)');
+                      return;
+                    }
+                    setError('');
+                    const payload = { fromWalletId: fromId, amount: parseFloat(amount) };
+                    if (String(toId).startsWith('linked-') || String(toId).startsWith('simplepay-')) {
+                      payload.toWalletId = toId;
+                    } else {
+                      payload.toProvider = toId;
+                      payload.toRecipient = prompt('Recipient phone / account number:') || '';
+                    }
+                    handleSend(payload);
+                  }}>
+                    {sending ? 'Processing...' : 'Send'}
                   </button>
-                </div>
+
+                  {/* PIN section */}
+                  {pinError && <div style={s.errorBox}>{pinError}</div>}
+                  {showSetPin ? (
+                    <div style={s.pinBox}>
+                      <div style={s.pinTitle}>🔐 Set a Transaction PIN</div>
+                      <div style={{ fontSize: '13px', color: '#888', marginBottom: '16px' }}>You need a 4-digit PIN to confirm transfers</div>
+                      <label style={s.label}>New PIN</label>
+                      <input style={{ ...s.input, letterSpacing: '8px', fontSize: '20px', textAlign: 'center' }} type="password" maxLength={4} placeholder="••••" value={newPin} onChange={e => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))} />
+                      <label style={s.label}>Confirm PIN</label>
+                      <input style={{ ...s.input, letterSpacing: '8px', fontSize: '20px', textAlign: 'center' }} type="password" maxLength={4} placeholder="••••" value={confirmPin} onChange={e => setConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 4))} />
+                      {pinSetMsg && <div style={{ ...s.errorBox, marginTop: '8px', background: pinSetMsg.includes('success') ? '#e6f7ed' : '#fde8e8', color: pinSetMsg.includes('success') ? '#1a6b3c' : '#a32d2d' }}>{pinSetMsg}</div>}
+                      <button style={{ ...s.btn, opacity: newPin.length === 4 && confirmPin.length === 4 ? 1 : 0.5 }} disabled={newPin.length !== 4 || confirmPin.length !== 4 || settingPin} onClick={handleSetPin}>
+                        {settingPin ? 'Setting PIN...' : 'Set PIN & continue'}
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={s.pinBox}>
+                      <div style={s.pinTitle}>🔐 Enter Transaction PIN</div>
+                      <div style={{ fontSize: '13px', color: '#888', marginBottom: '16px', textAlign: 'center' }}>Enter your 4-digit PIN to authorize this transfer</div>
+                      <input
+                        style={{ ...s.input, letterSpacing: '12px', fontSize: '24px', textAlign: 'center', fontWeight: 600 }}
+                        type="password" maxLength={4} placeholder="••••" value={pin}
+                        onChange={e => { setPin(e.target.value.replace(/\D/g, '').slice(0, 4)); setPinError(''); }}
+                      />
+                      <div style={{ textAlign: 'center', marginTop: '10px' }}>
+                        <span style={{ fontSize: '12px', color: '#888', cursor: 'pointer' }} onClick={() => setShowSetPin(true)}>Forgot PIN? Set a new one</span>
+                      </div>
+                    </div>
+                  )}
+                </>
               ) : (
-                <div style={s.pinBox}>
-                  <div style={s.pinTitle}>🔐 Enter Transaction PIN</div>
-                  <div style={{ fontSize: '13px', color: '#888', marginBottom: '16px', textAlign: 'center' }}>
-                    Enter your 4-digit PIN to authorize this transfer
+                /* Success receipt */
+                <div style={{ textAlign: 'center', padding: '24px 0' }}>
+                  <div style={s.successIcon}>✓</div>
+                  <div style={{ fontSize: '18px', fontWeight: 500, marginBottom: '8px' }}>Transfer successful!</div>
+                  <div style={{ fontSize: '14px', color: '#888', marginBottom: '20px' }}>
+                    NLe {Number(lastTxn.amount).toLocaleString()} sent
                   </div>
-                  <input
-                    style={{ ...s.input, letterSpacing: '12px', fontSize: '24px', textAlign: 'center', fontWeight: 600 }}
-                    type="password"
-                    maxLength={4}
-                    placeholder="••••"
-                    value={pin}
-                    onChange={e => { setPin(e.target.value.replace(/\D/g, '').slice(0, 4)); setPinError(''); }}
-                  />
-                  <div style={{ textAlign: 'center', marginTop: '10px' }}>
-                    <span style={{ fontSize: '12px', color: '#888', cursor: 'pointer' }} onClick={() => setShowSetPin(true)}>
-                      Forgot PIN? Set a new one
-                    </span>
+                  <div style={s.receiptCard}>
+                    {[
+                      ['Reference', lastTxn.reference],
+                      ['Amount', `NLe ${Number(lastTxn.amount).toLocaleString()}`],
+                      ['Fee', `NLe ${Number(lastTxn.fee || 0).toLocaleString()}`],
+                      ['Total', `NLe ${Number(lastTxn.total_deducted).toLocaleString()}`],
+                      ['New balance', `NLe ${Number(lastTxn.new_balance).toLocaleString()}`],
+                    ].map(([k, v]) => (
+                      <div key={k} style={s.receiptRow}><span style={{ color: '#888' }}>{k}</span><span style={{ fontWeight: 500 }}>{v}</span></div>
+                    ))}
                   </div>
+                  <button style={s.btn} onClick={resetSend}>Send another transfer</button>
                 </div>
               )}
             </div>
           )}
 
-          {/* Accounts Tab */}
+          {/* === ACCOUNTS TAB === */}
           {tab === 'accounts' && (
             <div>
               <div style={s.sectionTitle}>Link a new account</div>
@@ -279,24 +369,24 @@ export default function Dashboard() {
               </button>
 
               <div style={{ ...s.sectionTitle, marginTop: '24px' }}>Your linked accounts</div>
-              {linkedAccounts.length === 0 && <p style={{ color: '#888', fontSize: '14px' }}>No accounts linked yet.</p>}
+              {linkedAccounts.length === 0 && <p style={{ color: '#888', fontSize: '14px' }}>No accounts linked yet. Link one above.</p>}
               {linkedAccounts.map(acc => {
                 const p = providers.find(pr => pr.id === acc.provider_id);
                 return (
-                  <div key={acc.id} style={s.linkedItem}>
-                    <div style={{ ...s.linkedIcon, background: p?.color || '#555' }}>{p?.short || '??'}</div>
+                  <div key={acc.id} style={s.txnItem}>
+                    <div style={{ ...s.txnIcon, background: p?.color || '#1a6b3c' }}>{p?.short || '??'}</div>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: '14px', fontWeight: 500 }}>{p?.name || acc.provider_id}</div>
                       <div style={{ fontSize: '12px', color: '#888' }}>{acc.account_number} · ✓ Verified</div>
                     </div>
-                    <button onClick={() => handleUnlinkAccount(acc.id)} style={s.removeBtn}>Remove</button>
+                    <button onClick={() => handleUnlinkAccount(acc.id)} style={{ background: 'none', border: 'none', color: '#a32d2d', fontSize: '13px', cursor: 'pointer' }}>Remove</button>
                   </div>
                 );
               })}
 
               <div style={{ ...s.sectionTitle, marginTop: '24px' }}>Your SimplePay Account</div>
               {user?.simplepay_account_number && (
-                <div style={s.accountBox}>
+                <div style={{ background: '#e6f7ed', border: '1px solid #a8dfc0', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px' }}>
                   <div style={{ fontSize: '12px', color: '#555', marginBottom: '4px' }}>Your SimplePay account number</div>
                   <div style={{ fontSize: '18px', fontWeight: 600, color: '#1a6b3c', letterSpacing: '1px' }}>{user.simplepay_account_number}</div>
                   <div style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>Share this to receive money</div>
@@ -315,7 +405,7 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* History Tab */}
+          {/* === HISTORY TAB === */}
           {tab === 'history' && (
             <div>
               <div style={s.sectionTitle}>Recent transactions</div>
@@ -346,7 +436,7 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* Network Tab */}
+          {/* === NETWORK TAB === */}
           {tab === 'network' && (
             <div>
               <div style={s.networkBadge}>● Live network</div>
@@ -357,7 +447,7 @@ export default function Dashboard() {
                 ].map(([label, val, sub]) => (
                   <div key={label} style={s.statCard}>
                     <div style={{ fontSize: '11px', color: '#888' }}>{label}</div>
-                    <div style={{ fontSize: '22px', fontWeight: 500, color: '#1a1a1a' }}>{val}</div>
+                    <div style={{ fontSize: '22px', fontWeight: 500 }}>{val}</div>
                     <div style={{ fontSize: '11px', color: '#888' }}>{sub}</div>
                   </div>
                 ))}
@@ -365,10 +455,10 @@ export default function Dashboard() {
               <div style={s.sectionTitle}>Connected providers</div>
               <div style={s.providerGrid}>
                 {providers.map(p => (
-                  <div key={p.id} style={s.netCard}>
-                    <div style={{ ...s.netIcon, background: p.color }}>{p.short}</div>
-                    <div style={{ fontSize: '11px', fontWeight: 500, marginTop: '6px' }}>{p.name}</div>
-                    <div style={{ fontSize: '10px', color: '#1a6b3c', marginTop: '2px' }}>● Active</div>
+                  <div key={p.id} style={s.providerCard}>
+                    <div style={{ ...s.providerIcon, background: p.color }}>{p.short}</div>
+                    <div style={s.providerName}>{p.name}</div>
+                    <div style={{ fontSize: '10px', color: '#1a6b3c' }}>● Active</div>
                   </div>
                 ))}
               </div>
@@ -381,40 +471,45 @@ export default function Dashboard() {
 }
 
 const s = {
-  page: { minHeight: '100vh', background: '#0f0f0f', display: 'flex', justifyContent: 'center', padding: '20px 10px' },
+  page: { minHeight: '100vh', background: '#f0f0f0', display: 'flex', justifyContent: 'center', padding: '20px 10px' },
   app: { width: '100%', maxWidth: '720px' },
-  header: { background: '#1a1a1a', color: 'white', padding: '16px 20px', borderRadius: '16px 16px 0 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #333' },
+  header: { background: '#1a6b3c', color: 'white', padding: '16px 20px', borderRadius: '12px 12px 0 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+  logoImg: { width: '36px', height: '36px', borderRadius: '6px', flexShrink: 0 },
   logo: { fontSize: '20px', fontWeight: 600, color: 'white' },
   headerSub: { fontSize: '12px', opacity: 0.7, marginTop: '2px' },
   logoutBtn: { fontSize: '11px', background: 'transparent', color: 'rgba(255,255,255,0.6)', border: '1px solid rgba(255,255,255,0.3)', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer', marginTop: '4px' },
   carouselSection: {
-    background: '#1a1a1a',
+    background: 'white',
     padding: '16px 0',
-    borderBottom: '1px solid #333',
+    borderBottom: '1px solid #eee',
   },
-  tabs: { display: 'flex', background: '#1a1a1a', borderBottom: '1px solid #333' },
+  tabs: { display: 'flex', background: 'white', borderBottom: '1px solid #eee' },
   tab: { flex: 1, padding: '12px 8px', textAlign: 'center', fontSize: '13px', cursor: 'pointer', color: '#888', borderBottom: '2px solid transparent' },
-  tabActive: { color: '#7edeab', borderBottomColor: '#7edeab', fontWeight: 500 },
-  content: { background: '#1a1a1a', borderRadius: '0 0 16px 16px', padding: '20px', border: '1px solid #333', borderTop: 'none', color: 'white' },
+  tabActive: { color: '#1a6b3c', borderBottomColor: '#1a6b3c', fontWeight: 500 },
+  content: { background: 'white', borderRadius: '0 0 12px 12px', padding: '20px', border: '1px solid #eee', borderTop: 'none' },
   networkBadge: { display: 'inline-block', background: '#e6f7ed', color: '#1a6b3c', fontSize: '11px', padding: '3px 10px', borderRadius: '20px', marginBottom: '12px' },
-  sectionTitle: { fontSize: '11px', fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '10px' },
-  label: { display: 'block', fontSize: '13px', color: '#aaa', margin: '12px 0 6px' },
-  input: { width: '100%', padding: '10px 12px', border: '2px solid #333', borderRadius: '10px', fontSize: '15px', boxSizing: 'border-box', background: '#2a2a2a', color: 'white', outline: 'none' },
-  btn: { width: '100%', padding: '13px', background: '#1a6b3c', color: 'white', border: '2px solid #0d4a28', borderRadius: '10px', fontSize: '15px', fontWeight: 500, cursor: 'pointer', marginTop: '12px' },
-  errorBox: { background: '#3a1a1a', color: '#ff6b6b', padding: '10px 12px', borderRadius: '10px', fontSize: '13px', marginBottom: '12px', border: '1px solid #5a2020' },
-  notificationBanner: { display: 'flex', alignItems: 'center', padding: '12px 16px', borderRadius: '16px', border: '1px solid', marginBottom: '12px' },
+  sectionTitle: { fontSize: '11px', fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '10px' },
+  select: { width: '100%', padding: '12px', border: '2px solid #222', borderRadius: '10px', fontSize: '15px', background: 'white', cursor: 'pointer', outline: 'none', boxSizing: 'border-box' },
+  input: { width: '100%', padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '15px', boxSizing: 'border-box' },
+  inputAmount: { flex: 1, padding: '12px', border: '2px solid #222', borderRadius: '10px', fontSize: '15px', outline: 'none', boxSizing: 'border-box' },
+  amountRow: { display: 'flex', gap: '8px', alignItems: 'center' },
+  currencyBadge: { background: '#e6f7ed', color: '#1a6b3c', padding: '12px', borderRadius: '10px', fontSize: '13px', fontWeight: 600, border: '2px solid #1a6b3c', whiteSpace: 'nowrap' },
+  btn: { width: '100%', padding: '13px', background: '#1a6b3c', color: 'white', border: 'none', borderRadius: '8px', fontSize: '15px', fontWeight: 500, cursor: 'pointer', marginTop: '12px' },
+  label: { display: 'block', fontSize: '13px', color: '#555', margin: '12px 0 6px' },
+  errorBox: { background: '#fde8e8', color: '#a32d2d', padding: '10px 12px', borderRadius: '8px', fontSize: '13px', marginBottom: '12px', marginTop: '8px' },
+  notificationBanner: { display: 'flex', alignItems: 'center', padding: '12px 16px', borderRadius: '12px', border: '1px solid', marginBottom: '12px' },
   notificationClose: { background: 'none', border: 'none', cursor: 'pointer', color: '#888', fontSize: '14px', padding: '0 4px' },
-  linkedItem: { display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', border: '1px solid #333', borderRadius: '10px', marginBottom: '8px' },
-  linkedIcon: { width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: 'white', flexShrink: 0 },
-  removeBtn: { background: 'none', border: 'none', color: '#ff6b6b', fontSize: '13px', cursor: 'pointer' },
-  accountBox: { background: '#0d2a1a', border: '1px solid #1a6b3c', borderRadius: '10px', padding: '12px 16px', marginBottom: '16px' },
-  statGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '16px' },
-  statCard: { background: '#2a2a2a', borderRadius: '10px', padding: '12px', border: '1px solid #333' },
-  providerGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' },
-  netCard: { background: '#2a2a2a', border: '1px solid #333', borderRadius: '10px', padding: '12px 8px', textAlign: 'center' },
-  netIcon: { width: '36px', height: '36px', borderRadius: '50%', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 500, color: 'white' },
-  txnItem: { display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', border: '1px solid #333', borderRadius: '10px', marginBottom: '8px' },
+  txnItem: { display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', border: '1px solid #eee', borderRadius: '8px', marginBottom: '8px' },
   txnIcon: { width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: 'white', flexShrink: 0 },
-  pinBox: { background: '#2a2a2a', borderRadius: '10px', padding: '16px', marginBottom: '12px', textAlign: 'center', border: '1px solid #333' },
-  pinTitle: { fontSize: '16px', fontWeight: 600, color: 'white', marginBottom: '8px' },
+  statGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '16px' },
+  statCard: { background: '#f8f8f8', borderRadius: '8px', padding: '12px' },
+  providerGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' },
+  providerCard: { border: '1.5px solid #eee', borderRadius: '8px', padding: '10px 8px', textAlign: 'center' },
+  providerIcon: { width: '36px', height: '36px', borderRadius: '50%', margin: '0 auto 6px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 500, color: 'white' },
+  providerName: { fontSize: '11px', fontWeight: 500 },
+  receiptCard: { background: '#f8f8f8', borderRadius: '8px', padding: '14px 16px', marginBottom: '16px', textAlign: 'left' },
+  receiptRow: { display: 'flex', justifyContent: 'space-between', fontSize: '13px', padding: '5px 0', borderBottom: '1px solid #eee' },
+  successIcon: { width: '60px', height: '60px', borderRadius: '50%', background: '#e6f7ed', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', fontSize: '28px', color: '#1a6b3c' },
+  pinBox: { background: '#f8f8f8', borderRadius: '10px', padding: '16px', marginBottom: '12px', textAlign: 'center' },
+  pinTitle: { fontSize: '16px', fontWeight: 600, color: '#1a1a1a', marginBottom: '8px' },
 };
