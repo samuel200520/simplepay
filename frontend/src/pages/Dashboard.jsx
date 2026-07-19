@@ -24,6 +24,8 @@ export default function Dashboard() {
 
   // PIN management
   const [pin, setPin] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [showSetPin, setShowSetPin] = useState(false);
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [settingPin, setSettingPin] = useState(false);
@@ -147,7 +149,6 @@ export default function Dashboard() {
     try {
       await client.post('/user/set-pin', { pin: newPin });
       setPinSetMsg('PIN set successfully!');
-      setShowSetPin(false);
       setNewPin('');
       setConfirmPin('');
     } catch (err) {
