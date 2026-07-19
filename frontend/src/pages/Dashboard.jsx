@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import WalletCarousel from '../components/WalletCarousel';
+import TransactionPin from '../components/TransactionPin';
 import client from '../api/client';
 import { calculateTransactionFee } from '../utils/feeCalculator';
 
@@ -19,6 +20,8 @@ export default function Dashboard() {
   const [recipient, setRecipient] = useState('');
   const [selectedToId, setSelectedToId] = useState('');
   const [amount, setAmount] = useState('');
+  const [transferStep, setTransferStep] = useState('form');
+  const [transferPayload, setTransferPayload] = useState(null);
 
   // Link account form
   const [newAccount, setNewAccount] = useState({ provider_id: '', account_number: '' });
@@ -174,11 +177,227 @@ export default function Dashboard() {
     }
   };
 
+  const verifyPin = async (pinCode) => {
+    setError('');
+    try {
+      const res = await client.post('/user/verify-pin', { pin: pinCode });
+      if (res.data.success) {
+        setTransferStep('processing');
+        await handleSend(transferPayload);
+        setTransferStep('success');
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Incorrect PIN. Please try again.');
+      throw err;
+    }
+  };
+
   const resetSend = () => {
     setLastTxn(null);
     setError('');
     setSelectedToId('');
     setRecipient('');
+    setAmount('');
+    setTransferStep('form');
+    setTransferPayload(null);
+  };
+
+  const getFromProvider = () => {
+    const fromEl = document.getElementById('fromSelect');
+    const fromId = fromEl?.value || '';
+    const fromWallet = walletCards.find(w => w.id === fromId);
+    return fromWallet?.provider || 'simplepay';
+  };
+
+  const getToProvider = () => {
+    const toId = selectedToId || '';
+    const toWallet = walletCards.find(w => w.id === toId);
+    const toProviderObj = providers.find(p => p.id === toId);
+    return toWallet?.provider || toProviderObj?.id || 'simplepay';
+  };
+
+  const renderSendStep = () => {
+    if (transferStep === 'summary') {
+      const fromEl = document.getElementById('fromSelect');
+      const fromId = fromEl?.value || '';
+      const fromWallet = walletCards.find(w => w.id === fromId);
+      const toWallet = walletCards.find(w => w.id === selectedToId);
+      const toProviderObj = providers.find(p => p.id === selectedToId);
+      const fromName = fromWallet?.walletName || 'SimplePay Wallet';
+      const toName = toWallet?.walletName || toProviderObj?.name || 'Provider';
+      const { fee: computedFee, total } = calculateTransactionFee(amount, getFromProvider(), getToProvider());
+      return (
+        <div style={{ textAlign: 'center', padding: '24px 0' }}>
+          <div style={{ fontSize: '18px', fontWeight: 500, marginBottom: '24px' }}>Review Transfer</div>
+          <div style={s.receiptCard}>
+            {[
+              ['From', fromName],
+              ['To', toName],
+              ['Recipient', recipient || 'N/A'],
+              ['Amount', `NLe ${Number(amount).toLocaleString()}`],
+              ['Transaction Fee', `NLe ${computedFee.toLocaleString()}`],
+              ['Total Debit', `NLe ${total.toLocaleString()}`],
+              ['Expected Delivery', 'Instant'],
+            ].map(([k, v]) => (
+              <div key={k} style={s.receiptRow}><span style={{ color: '#888' }}>{k}</span><span style={{ fontWeight: 500 }}>{v}</span></div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
+            <button style={{ ...s.btn, flex: 1, background: '#f5f5f5', color: '#666' }} onClick={() => setTransferStep('form')}>Cancel</button>
+            <button style={{ ...s.btn, flex: 1 }} onClick={() => setTransferStep('pin')}>Continue</button>
+          </div>
+        </div>
+      );
+    }
+
+    if (transferStep === 'pin') {
+      return (
+        <TransactionPin
+          onConfirm={(pinCode) => verifyPin(pinCode)}
+          onCancel={() => setTransferStep('summary')}
+          loading={sending}
+        />
+      );
+    }
+
+    if (transferStep === 'processing') {
+      return (
+        <div style={{ textAlign: 'center', padding: '40px 0' }}>
+          <div style={{ fontSize: '40px', marginBottom: '16px' }}>⏳</div>
+          <div style={{ fontSize: '18px', fontWeight: 500 }}>Processing Transfer...</div>
+          <div style={{ fontSize: '14px', color: '#888', marginTop: '8px' }}>Please wait while we process your transaction</div>
+        </div>
+      );
+    }
+
+    if (transferStep === 'success') {
+      const fromName = lastTxn?.from_provider || 'Wallet';
+      const toName = lastTxn?.to_provider || 'Wallet';
+      return (
+        <div style={{ textAlign: 'center', padding: '24px 0' }}>
+          <div style={{ fontSize: '48px', marginBottom: '16px' }}>✓</div>
+          <div style={{ fontSize: '20px', fontWeight: 600, marginBottom: '8px', color: '#1a6b3c' }}>Transfer Successful!</div>
+          <div style={{ fontSize: '14px', color: '#888', marginBottom: '24px' }}>
+            NLe {Number(lastTxn?.amount).toLocaleString()} sent
+          </div>
+          <div style={{ ...s.receiptCard, textAlign: 'left' }}>
+            {[
+              ['Reference', lastTxn?.reference],
+              ['From', fromName],
+              ['To', toName],
+              ['Recipient', lastTxn?.receiver_identifier || recipient || 'N/A'],
+              ['Amount', `NLe ${Number(lastTxn?.amount).toLocaleString()}`],
+              ['Fee', `NLe ${Number(lastTxn?.fee || 0).toLocaleString()}`],
+              ['Total Debited', `NLe ${Number(lastTxn?.total_deducted || lastTxn?.amount).toLocaleString()}`],
+              ['Date & Time', new Date().toLocaleString()],
+              ['Status', 'Completed'],
+            ].map(([k, v]) => (
+              <div key={k} style={s.receiptRow}><span style={{ color: '#888' }}>{k}</span><span style={{ fontWeight: 500 }}>{v}</span></div>
+            ))}
+          </div>
+          <button style={s.btn} onClick={resetSend}>Done</button>
+        </div>
+      );
+    }
+
+    // Default: form step
+    return (
+      <>
+        {/* FROM: all wallets */}
+        <div style={s.sectionTitle}>FROM</div>
+        <select style={s.select} id="fromSelect" onChange={e => setRecipient('')}>
+          <option value="">Select source wallet</option>
+          {walletCards.map(w => (
+            <option key={w.id} value={w.id}>
+              {w.walletName} — NLe {Number(w.balance).toLocaleString()}
+            </option>
+          ))}
+        </select>
+
+        {/* TO: linked wallets + providers */}
+        <div style={{ ...s.sectionTitle, marginTop: '16px' }}>TO</div>
+        <select style={s.select} id="toSelect" onChange={e => { setSelectedToId(e.target.value); setRecipient(''); }}>
+          <option value="">Select destination</option>
+          <optgroup label="Your Linked Accounts">
+            {walletCards.filter(w => w.provider !== 'SimplePay').map(w => (
+              <option key={w.id} value={w.id}>
+                {w.walletName} — NLe {Number(w.balance).toLocaleString()}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="All Providers">
+            {providers.map(p => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </optgroup>
+        </select>
+
+        {/* Recipient input — show whenever TO is selected */}
+        {selectedToId && (
+          <>
+            <div style={{ ...s.sectionTitle, marginTop: '16px' }}>
+              {selectedToId === 'simplepay' ? 'Recipient SimplePay Account Number' : selectedToId.startsWith('linked-') ? 'Confirm destination' : `Recipient ${providers.find(p => p.id === selectedToId)?.name || 'account'} Number`}
+            </div>
+            <input
+              style={s.input}
+              placeholder={selectedToId === 'simplepay' ? 'SP-12345678' : selectedToId.startsWith('linked-') ? 'Account number / phone' : '077 123 456'}
+              value={recipient}
+              onChange={e => setRecipient(e.target.value)}
+            />
+          </>
+        )}
+
+        {/* Amount */}
+        <div style={{ ...s.sectionTitle, marginTop: '16px' }}>Amount (NLe)</div>
+        <div style={s.amountRow}>
+          <span style={s.currencyBadge}>NLe</span>
+          <input style={{ ...s.inputAmount, flex: 1 }} type="number" min="5" placeholder="50" id="amountInput" value={amount} onChange={e => setAmount(e.target.value)} />
+        </div>
+        {amount && parseFloat(amount) >= 5 && (() => {
+          const fromProvider = getFromProvider();
+          const toProvider = getToProvider();
+          const { fee: computedFee, total } = calculateTransactionFee(amount, fromProvider, toProvider);
+          return (
+            <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>
+              Fee: NLe {computedFee.toLocaleString()} · Total: NLe {total.toLocaleString()}
+            </div>
+          );
+        })()}
+        {(!amount || parseFloat(amount) < 5) && (
+          <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>
+            Min: NLe 5
+          </div>
+        )}
+
+        <button style={s.btn} onClick={() => {
+          const fromEl = document.getElementById('fromSelect');
+          const fromId = fromEl.value;
+          const toId = selectedToId;
+          if (!fromId || !toId || !amount || parseFloat(amount) < 5) {
+            setError('Please select FROM wallet, TO destination, and enter amount (min NLe 5)');
+            return;
+          }
+          if (!toId.startsWith('linked-') && !toId.startsWith('simplepay-') && !recipient) {
+            setError('Please enter recipient account / phone number');
+            return;
+          }
+          setError('');
+          const payload = { fromWalletId: fromId, amount: parseFloat(amount) };
+          if (String(toId).startsWith('linked-') || String(toId).startsWith('simplepay-')) {
+            payload.toWalletId = toId;
+          } else {
+            payload.toProvider = toId;
+            payload.toRecipient = recipient;
+          }
+          setTransferPayload(payload);
+          setTransferStep('summary');
+        }}>
+          Continue
+        </button>
+      </>
+    );
   };
 
   return (
@@ -232,130 +451,7 @@ export default function Dashboard() {
           {tab === 'send' && (
             <div>
               <div style={s.networkBadge}>● Network live — {providers.length} providers connected</div>
-
-              {!lastTxn ? (
-                <>
-                  {/* FROM: all wallets */}
-                  <div style={s.sectionTitle}>FROM</div>
-                  <select style={s.select} id="fromSelect" onChange={e => setRecipient('')}>
-                    <option value="">Select source wallet</option>
-                    {walletCards.map(w => (
-                      <option key={w.id} value={w.id}>
-                        {w.walletName} — NLe {Number(w.balance).toLocaleString()}
-                      </option>
-                    ))}
-                  </select>
-
-                  {/* TO: linked wallets + providers */}
-                  <div style={{ ...s.sectionTitle, marginTop: '16px' }}>TO</div>
-                  <select style={s.select} id="toSelect" onChange={e => { setSelectedToId(e.target.value); setRecipient(''); }}>
-                    <option value="">Select destination</option>
-                    <optgroup label="Your Linked Accounts">
-                      {walletCards.filter(w => w.provider !== 'SimplePay').map(w => (
-                        <option key={w.id} value={w.id}>
-                          {w.walletName} — NLe {Number(w.balance).toLocaleString()}
-                        </option>
-                      ))}
-                    </optgroup>
-                    <optgroup label="All Providers">
-                      {providers.map(p => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  </select>
-
-                  {/* Recipient input — show whenever TO is selected */}
-                  {selectedToId && (
-                    <>
-                      <div style={{ ...s.sectionTitle, marginTop: '16px' }}>
-                        {selectedToId === 'simplepay' ? 'Recipient SimplePay Account Number' : selectedToId.startsWith('linked-') ? 'Confirm destination' : `Recipient ${providers.find(p => p.id === selectedToId)?.name || 'account'} Number`}
-                      </div>
-                      <input
-                        style={s.input}
-                        placeholder={selectedToId === 'simplepay' ? 'SP-12345678' : selectedToId.startsWith('linked-') ? 'Account number / phone' : '077 123 456'}
-                        value={recipient}
-                        onChange={e => setRecipient(e.target.value)}
-                      />
-                    </>
-                  )}
-
-                  {/* Amount */}
-                  <div style={{ ...s.sectionTitle, marginTop: '16px' }}>Amount (NLe)</div>
-                  <div style={s.amountRow}>
-                    <span style={s.currencyBadge}>NLe</span>
-                    <input style={{ ...s.inputAmount, flex: 1 }} type="number" min="5" placeholder="50" id="amountInput" value={amount} onChange={e => setAmount(e.target.value)} />
-                  </div>
-                  {amount && parseFloat(amount) >= 5 && (() => {
-                    const fromEl = document.getElementById('fromSelect');
-                    const fromId = fromEl?.value || '';
-                    const toId = selectedToId || '';
-                    const fromWallet = walletCards.find(w => w.id === fromId);
-                    const toWallet = walletCards.find(w => w.id === toId);
-                    const toProviderObj = providers.find(p => p.id === toId);
-                    const fromProvider = fromWallet?.provider || 'simplepay';
-                    const toProvider = toWallet?.provider || toProviderObj?.id || 'simplepay';
-                    const { fee: computedFee, total } = calculateTransactionFee(amount, fromProvider, toProvider);
-                    return (
-                      <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>
-                        Fee: NLe {computedFee.toLocaleString()} · Total: NLe {total.toLocaleString()}
-                      </div>
-                    );
-                  })()}
-                  {(!amount || parseFloat(amount) < 5) && (
-                    <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>
-                      Min: NLe 5
-                    </div>
-                  )}
-
-                  <button style={s.btn} id="sendBtn" onClick={() => {
-                    const fromEl = document.getElementById('fromSelect');
-                    const fromId = fromEl.value;
-                    const toId = selectedToId;
-                    if (!fromId || !toId || !amount || parseFloat(amount) < 5) {
-                      setError('Please select FROM wallet, TO destination, and enter amount (min NLe 5)');
-                      return;
-                    }
-                    if (!toId.startsWith('linked-') && !toId.startsWith('simplepay-') && !recipient) {
-                      setError('Please enter recipient account / phone number');
-                      return;
-                    }
-                    setError('');
-                    const payload = { fromWalletId: fromId, amount: parseFloat(amount) };
-                    if (String(toId).startsWith('linked-') || String(toId).startsWith('simplepay-')) {
-                      payload.toWalletId = toId;
-                    } else {
-                      payload.toProvider = toId;
-                      payload.toRecipient = recipient;
-                    }
-                    handleSend(payload);
-                  }}>
-                    {sending ? 'Processing...' : 'Send'}
-                  </button>
-                </>
-              ) : (
-                /* Success receipt */
-                <div style={{ textAlign: 'center', padding: '24px 0' }}>
-                  <div style={s.successIcon}>✓</div>
-                  <div style={{ fontSize: '18px', fontWeight: 500, marginBottom: '8px' }}>Transfer successful!</div>
-                  <div style={{ fontSize: '14px', color: '#888', marginBottom: '20px' }}>
-                    NLe {Number(lastTxn.amount).toLocaleString()} sent
-                  </div>
-                  <div style={s.receiptCard}>
-                    {[
-                      ['From', lastTxn.from_provider || 'Wallet'],
-                      ['To', lastTxn.to_provider || 'Wallet'],
-                      ['Amount', `NLe ${Number(lastTxn.amount).toLocaleString()}`],
-                      ['Fee', `NLe ${Number(lastTxn.fee || 0).toLocaleString()}`],
-                      ['Total Debit', `NLe ${Number(lastTxn.total_deducted || lastTxn.amount).toLocaleString()}`],
-                    ].map(([k, v]) => (
-                      <div key={k} style={s.receiptRow}><span style={{ color: '#888' }}>{k}</span><span style={{ fontWeight: 500 }}>{v}</span></div>
-                    ))}
-                  </div>
-                  <button style={s.btn} onClick={resetSend}>Send another transfer</button>
-                </div>
-              )}
+              {renderSendStep()}
             </div>
           )}
 
@@ -439,6 +535,10 @@ export default function Dashboard() {
                     <div style={{ color: isReversed ? '#888' : isReceived ? '#1a6b3c' : '#a32d2d', fontWeight: 500, fontSize: '14px', textDecoration: isReversed ? 'line-through' : 'none' }}>
                       {isReceived ? '+' : '-'}NLe {Number(t.amount).toLocaleString()}
                       {!isReceived && t.fee ? <div style={{ fontSize: '11px', fontWeight: 400 }}>Fee: NLe {Number(t.fee).toLocaleString()}</div> : null}
+                      {!isReceived && t.total_deducted ? <div style={{ fontSize: '11px', fontWeight: 400 }}>Total: NLe {Number(t.total_deducted).toLocaleString()}</div> : null}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
+                      Ref: {t.reference?.slice(-8) || 'N/A'}
                     </div>
                   </div>
                 );
