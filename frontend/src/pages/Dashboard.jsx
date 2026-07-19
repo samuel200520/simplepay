@@ -23,7 +23,6 @@ export default function Dashboard() {
   const [linkError, setLinkError] = useState('');
 
   // PIN management
-  const [pin, setPin] = useState('');
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [settingPin, setSettingPin] = useState(false);
@@ -166,7 +165,6 @@ export default function Dashboard() {
       await refreshWallets();
       const txnRes = await client.get('/transfer/history');
       setTransactions(txnRes.data.transactions);
-      setPin('');
     } catch (err) {
       setError(err.response?.data?.error || 'Transfer failed');
     } finally {
@@ -177,7 +175,6 @@ export default function Dashboard() {
   const resetSend = () => {
     setLastTxn(null);
     setError('');
-    setPin('');
     setRecipient('');
   };
 
