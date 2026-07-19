@@ -375,31 +375,6 @@ export default function Dashboard() {
               )}
             </div>
           )}
-                </>
-              ) : (
-                /* Success receipt */
-                <div style={{ textAlign: 'center', padding: '24px 0' }}>
-                  <div style={s.successIcon}>✓</div>
-                  <div style={{ fontSize: '18px', fontWeight: 500, marginBottom: '8px' }}>Transfer successful!</div>
-                  <div style={{ fontSize: '14px', color: '#888', marginBottom: '20px' }}>
-                    NLe {Number(lastTxn.amount).toLocaleString()} sent
-                  </div>
-                  <div style={s.receiptCard}>
-                    {[
-                      ['Reference', lastTxn.reference],
-                      ['Amount', `NLe ${Number(lastTxn.amount).toLocaleString()}`],
-                      ['Fee', `NLe ${Number(lastTxn.fee || 0).toLocaleString()}`],
-                      ['Total', `NLe ${Number(lastTxn.total_deducted).toLocaleString()}`],
-                      ['New balance', `NLe ${Number(lastTxn.new_balance).toLocaleString()}`],
-                    ].map(([k, v]) => (
-                      <div key={k} style={s.receiptRow}><span style={{ color: '#888' }}>{k}</span><span style={{ fontWeight: 500 }}>{v}</span></div>
-                    ))}
-                  </div>
-                  <button style={s.btn} onClick={resetSend}>Send another transfer</button>
-                </div>
-              )}
-            </div>
-          )}
 
           {/* === ACCOUNTS TAB === */}
           {tab === 'accounts' && (
