@@ -27,11 +27,15 @@ export default function Dashboard() {
   const [settingPin, setSettingPin] = useState(false);
   const [pinSetMsg, setPinSetMsg] = useState('');
   const [walletCards, setWalletCards] = useState([]);
+  const [cycleIndex, setCycleIndex] = useState(0);
 
   useEffect(() => {
     client.get('/user/providers').then(r => setProviders(r.data.providers));
     client.get('/accounts').then(r => setLinkedAccounts(r.data.accounts));
-    client.get('/wallets').then(r => setWalletCards(r.data.wallets)).catch(() => {});
+    client.get('/wallets').then(r => {
+      setWalletCards(r.data.wallets);
+      setCycleIndex(0);
+    }).catch(() => {});
     client.get('/transfer/history').then(r => {
       const txns = r.data.transactions;
       setTransactions(txns);
@@ -39,6 +43,14 @@ export default function Dashboard() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (walletCards.length <= 1) return;
+    const timer = setInterval(() => {
+      setCycleIndex(prev => (prev + 1) % walletCards.length);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [walletCards.length]);
 
   const checkForNewActivity = (txns) => {
     const lastSeen = localStorage.getItem('simplepay_last_seen_txn');
@@ -141,13 +153,19 @@ export default function Dashboard() {
     setError('');
     setSending(true);
     try {
-      const res = await client.post('/wallets/transfers', {
+      const isLinkedTo = String(selectedTo.id).startsWith('linked-');
+      const payload = {
         fromWalletId: selectedFrom.id,
-        toProvider: selectedTo.id,
-        toRecipient: form.recipient,
         amount: parseFloat(form.amount),
         note: form.note,
-      });
+      };
+      if (isLinkedTo) {
+        payload.toWalletId = selectedTo.id;
+      } else {
+        payload.toProvider = selectedTo.id;
+        payload.toRecipient = form.recipient;
+      }
+      const res = await client.post('/wallets/transfers', payload);
       setLastTxn(res.data);
       await fetchProfile();
       client.get('/wallets').then(r => setWalletCards(r.data.wallets)).catch(() => {});
@@ -203,14 +221,22 @@ export default function Dashboard() {
 
         <div style={s.balanceBar}>
           <div>
-            <div style={{ fontSize: '12px', opacity: 0.7 }}>SimplePay Wallet</div>
-            <div style={{ fontSize: '22px', fontWeight: 500 }}>NLe {wallet ? Number(wallet.balance).toLocaleString() : '—'}</div>
+            <div style={{ fontSize: '12px', opacity: 0.7 }}>{walletCards[cycleIndex]?.walletName || 'Wallet'}</div>
+            <div style={{ fontSize: '22px', fontWeight: 500 }}>NLe {walletCards[cycleIndex] ? Number(walletCards[cycleIndex].balance).toLocaleString() : '—'}</div>
           </div>
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: '12px', opacity: 0.7 }}>Status</div>
             <div style={{ fontSize: '13px', color: '#7edeab' }}>● Verified</div>
           </div>
         </div>
+
+        {walletCards.length > 1 && (
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '6px', padding: '8px 0', background: 'white', borderBottom: '1px solid #eee' }}>
+            {walletCards.map((w, i) => (
+              <div key={w.id} style={{ width: '8px', height: '8px', borderRadius: '50%', background: i === cycleIndex ? '#1a6b3c' : '#ddd', transition: 'background 0.3s' }} />
+            ))}
+          </div>
+        )}
 
         <div style={s.tabs}>
           {['send', 'accounts', 'history', 'network'].map(t => (
@@ -264,6 +290,30 @@ export default function Dashboard() {
                   <div style={s.divider}>↓ to</div>
                   <div style={s.sectionTitle}>To</div>
                   <div style={s.providerGrid}>
+                    {walletCards.filter(w => w.provider !== 'SimplePay').map(w => {
+                      const provider = providers.find(p => p.id === w.provider);
+                      return (
+                        <div 
+                          key={w.id} 
+                          style={{ 
+                            ...s.providerCard, 
+                            ...(selectedTo?.id === w.id ? s.providerSelected : {})
+                          }} 
+                          onClick={() => setSelectedTo({ 
+                            id: w.id, 
+                            name: w.walletName || w.provider,
+                            short: provider?.short || '??',
+                            color: provider?.color || '#888',
+                            type: 'linked',
+                            balance: w.balance
+                          })}
+                        >
+                          <div style={{ ...s.providerIcon, background: provider?.color || '#888' }}>{provider?.short || '??'}</div>
+                          <div style={s.providerName}>{w.walletName || w.provider}</div>
+                          <div style={s.providerType}>Linked · NLe {Number(w.balance).toLocaleString()}</div>
+                        </div>
+                      );
+                    })}
                     {providers.map(p => (
                       <div 
                         key={p.id} 
@@ -296,8 +346,17 @@ export default function Dashboard() {
                   <div style={{ fontSize: '13px', color: '#888', marginBottom: '16px' }}>
                     <strong>{selectedFrom?.name}</strong> → <strong>{selectedTo?.name}</strong>
                   </div>
-                  <label style={s.label}>{selectedTo?.id === 'simplepay' ? 'Recipient SimplePay Account Number' : 'Recipient phone / account number'}</label>
-                  <input style={s.input} placeholder={selectedTo?.id === 'simplepay' ? 'SP-12345678' : '077 123 456'} value={form.recipient} onChange={e => setForm({ ...form, recipient: e.target.value })} />
+                  {!String(selectedTo.id).startsWith('linked-') && (
+                    <>
+                      <label style={s.label}>{selectedTo?.id === 'simplepay' ? 'Recipient SimplePay Account Number' : 'Recipient phone / account number'}</label>
+                      <input style={s.input} placeholder={selectedTo?.id === 'simplepay' ? 'SP-12345678' : '077 123 456'} value={form.recipient} onChange={e => setForm({ ...form, recipient: e.target.value })} />
+                    </>
+                  )}
+                  {String(selectedTo.id).startsWith('linked-') && (
+                    <div style={{ background: '#e6f7ed', border: '1px solid #a8dfc0', borderRadius: '8px', padding: '10px 14px', marginBottom: '12px', fontSize: '13px', color: '#1a6b3c' }}>
+                      Sending to linked {selectedTo.name} ({selectedTo.balance ? 'NLe ' + Number(selectedTo.balance).toLocaleString() : 'NLe 0'} balance)
+                    </div>
+                  )}
                   <label style={s.label}>Amount (NLe)</label>
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <span style={s.currencyBadge}>NLe</span>
@@ -308,7 +367,7 @@ export default function Dashboard() {
                   </div>
                   <label style={s.label}>Note (optional)</label>
                   <input style={s.input} placeholder="e.g. School fees" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} />
-                  <button style={{ ...s.btn, opacity: form.recipient && form.amount ? 1 : 0.5 }} disabled={!form.recipient || !form.amount} onClick={() => setStep(3)}>
+                  <button style={{ ...s.btn, opacity: form.amount ? 1 : 0.5 }} disabled={!form.amount} onClick={() => setStep(3)}>
                     Review transfer →
                   </button>
                   <button style={s.backBtn} onClick={() => setStep(1)}>← Back</button>
