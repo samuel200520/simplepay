@@ -32,6 +32,25 @@ exports.getWalletCards = async (req, res) => {
       [userId]
     );
 
+    const linkedIds = linked.rows.map(r => r.id);
+    let balanceMap = {};
+    if (linkedIds.length > 0) {
+      const hasWalletBalances = await db.getTableExists('wallet_balances');
+      if (hasWalletBalances) {
+        try {
+          const balResult = await db.query(
+            `SELECT linked_wallet_id, balance, currency, last_sync FROM wallet_balances WHERE linked_wallet_id = ANY($1::int[])`,
+            [linkedIds]
+          );
+          for (const row of balResult.rows) {
+            balanceMap[row.linked_wallet_id] = { balance: Number(row.balance), currency: row.currency, lastSync: row.last_sync };
+          }
+        } catch (err) {
+          console.error('wallet_balances query failed:', err.message);
+        }
+      }
+    }
+
     const cards = [];
 
     cards.push({
@@ -48,15 +67,16 @@ exports.getWalletCards = async (req, res) => {
 
     for (const la of linked.rows) {
       const provider = la.provider_id;
+      const cached = balanceMap[la.id] || {};
       cards.push({
         id: `linked-${la.id}`,
         provider: provider,
         walletName: la.account_name || mapProviderToWalletName(provider, la.account_number),
         accountNumber: la.account_number,
-        balance: 0,
-        currency: 'SLE',
+        balance: cached.balance ?? 0,
+        currency: cached.currency || 'SLE',
         status: 'Linked',
-        lastSync: null,
+        lastSync: cached.lastSync || null,
         _internal: { linkedAccountId: la.id },
       });
     }
