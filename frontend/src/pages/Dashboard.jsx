@@ -30,22 +30,27 @@ export default function Dashboard() {
   const [pinSetMsg, setPinSetMsg] = useState('');
 
   useEffect(() => {
-    // Load all data on mount
+    // Load all data on mount — providers first so they always show
     const loadData = async () => {
       try {
-        const [wRes, pRes, acctsRes, txnRes] = await Promise.all([
+        const pRes = await client.get('/user/providers');
+        setProviders(pRes.data.providers);
+      } catch (err) {
+        console.error('load providers error:', err);
+      }
+
+      try {
+        const [wRes, acctsRes, txnRes] = await Promise.all([
           client.get('/wallets'),
-          client.get('/user/providers'),
           client.get('/accounts'),
           client.get('/transfer/history'),
         ]);
         setWalletCards(wRes.data.wallets);
-        setProviders(pRes.data.providers);
         setLinkedAccounts(acctsRes.data.accounts);
         setTransactions(txnRes.data.transactions);
         checkForNewActivity(txnRes.data.transactions);
       } catch (err) {
-        console.error('loadData error:', err);
+        console.error('load wallets/accounts/history error:', err);
       }
     };
     loadData();
