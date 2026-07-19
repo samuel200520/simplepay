@@ -414,9 +414,8 @@ export default function Dashboard() {
 
         <div style={s.header}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <img src="/logo.svg" alt="SimplePay" style={s.logoImg} />
+            <img src="/logo.png" alt="SimplePay" style={s.logoImg} />
             <div>
-              <div style={s.logo}>Simple<span style={{ color: '#7edeab' }}>Pay</span></div>
               <div style={s.headerSub}>Unified Payments · Sierra Leone</div>
             </div>
           </div>

@@ -18,7 +18,6 @@ export default function Admin() {
   const [dailyStats, setDailyStats] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [actionMsg, setActionMsg] = useState('');
-  const [selectedUser, setSelectedUser] = useState(null);
   const [userDetail, setUserDetail] = useState(null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -31,6 +30,7 @@ export default function Admin() {
       fetchProviders();
       fetchDailyStats();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const fetchOverview = async () => {
@@ -86,7 +86,6 @@ export default function Admin() {
     try {
       const res = await adminClient.get(`/admin/users/${userId}`, { headers: { Authorization: `Bearer ${token}` } });
       setUserDetail(res.data);
-      setSelectedUser(userId);
       setAdminTab('user-detail');
     } catch (err) {
       handleAuthError();
@@ -119,7 +118,6 @@ export default function Admin() {
     setUsers([]);
     setTransactions([]);
     setOverview(null);
-    setSelectedUser(null);
     setUserDetail(null);
   };
 
@@ -165,7 +163,7 @@ export default function Admin() {
     return (
       <div style={styles.loginContainer}>
         <div style={styles.loginCard}>
-          <h1 style={styles.logo}>Simple<span style={{ color: '#1a6b3c' }}>Pay</span> Admin</h1>
+          <img src="/logo.png" alt="SimplePay Admin" style={styles.logoImg} />
           <p style={styles.subtitle}>Operations dashboard</p>
           {error && <div style={styles.errorBox}>{error}</div>}
           <form onSubmit={handleLogin}>
@@ -190,7 +188,7 @@ export default function Admin() {
     <div style={styles.page}>
       <div style={styles.header}>
         <div>
-          <h1 style={styles.logo}>Simple<span style={{ color: '#1a6b3c' }}>Pay</span> Admin</h1>
+          <img src="/logo.png" alt="SimplePay Admin" style={styles.logoImg} />
           <p style={styles.subtitle}>Operations dashboard</p>
         </div>
         <button onClick={handleLogout} style={styles.logoutBtn}>Sign out</button>
@@ -324,7 +322,7 @@ export default function Admin() {
 
       {adminTab === 'user-detail' && userDetail && (
         <div>
-          <button onClick={() => { setAdminTab('users'); setSelectedUser(null); setUserDetail(null); }} style={styles.backBtn}>
+          <button onClick={() => { setAdminTab('users'); setUserDetail(null); }} style={styles.backBtn}>
             ← Back to Users
           </button>
           <div style={styles.detailCard}>
@@ -547,8 +545,8 @@ export default function Admin() {
 
 const styles = {
   loginContainer: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f5' },
-  loginCard: { background: 'white', padding: '2rem', borderRadius: '12px', width: '100%', maxWidth: '380px', boxShadow: '0 2px 16px rgba(0,0,0,0.08)' },
-  logo: { fontSize: '20px', fontWeight: '600', color: '#1a1a1a', marginBottom: '4px' },
+  loginCard: { background: 'white', padding: '2rem', borderRadius: '12px', width: '100%', maxWidth: '380px', boxShadow: '0 2px 16px rgba(0,0,0,0.08)', textAlign: 'center' },
+  logoImg: { width: '80px', height: '80px', objectFit: 'contain', marginBottom: '8px' },
   subtitle: { fontSize: '13px', color: '#888', marginBottom: '1.5rem' },
   label: { display: 'block', fontSize: '13px', color: '#555', marginBottom: '6px', marginTop: '12px' },
   input: { width: '100%', padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '15px', boxSizing: 'border-box' },

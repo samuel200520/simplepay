@@ -26,7 +26,7 @@ export default function Login() {
   return (
     <div style={styles.container}>
       <div style={styles.card}>
-        <h1 style={styles.logo}>Simple<span style={{ color: '#1a6b3c' }}>Pay</span></h1>
+        <img src="/logo.png" alt="SimplePay" style={styles.logoImg} />
         <p style={styles.subtitle}>Unified Payments · Sierra Leone</p>
         <h2 style={styles.heading}>Sign in</h2>
         {error && <div style={styles.errorBox}>{error}</div>}
@@ -48,7 +48,7 @@ export default function Login() {
 const styles = {
   container: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f5' },
   card: { background: 'white', padding: '2rem', borderRadius: '12px', width: '100%', maxWidth: '380px', boxShadow: '0 2px 16px rgba(0,0,0,0.08)' },
-  logo: { fontSize: '24px', fontWeight: '600', color: '#1a6b3c', marginBottom: '4px' },
+  logoImg: { width: '80px', height: '80px', objectFit: 'contain', marginBottom: '8px' },
   subtitle: { fontSize: '13px', color: '#888', marginBottom: '1.5rem' },
   heading: { fontSize: '18px', fontWeight: '500', marginBottom: '1rem' },
   label: { display: 'block', fontSize: '13px', color: '#555', marginBottom: '6px', marginTop: '12px' },
