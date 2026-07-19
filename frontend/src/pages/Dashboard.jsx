@@ -15,6 +15,7 @@ export default function Dashboard() {
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
   const [notification, setNotification] = useState(null);
+  const [recipient, setRecipient] = useState('');
 
   // Link account form
   const [newAccount, setNewAccount] = useState({ provider_id: '', account_number: '' });
@@ -259,9 +260,9 @@ export default function Dashboard() {
 
               {!lastTxn ? (
                 <>
-                  {/* FROM: SimplePay wallet + linked wallets */}
+                  {/* FROM: all wallets */}
                   <div style={s.sectionTitle}>FROM</div>
-                  <select style={s.select} id="fromSelect">
+                  <select style={s.select} id="fromSelect" onChange={e => setRecipient('')}>
                     <option value="">Select source wallet</option>
                     {walletCards.map(w => (
                       <option key={w.id} value={w.id}>
@@ -270,9 +271,9 @@ export default function Dashboard() {
                     ))}
                   </select>
 
-                  {/* TO: linked wallets + all providers */}
+                  {/* TO: linked wallets + providers */}
                   <div style={{ ...s.sectionTitle, marginTop: '16px' }}>TO</div>
-                  <select style={s.select} id="toSelect">
+                  <select style={s.select} id="toSelect" onChange={e => setRecipient('')}>
                     <option value="">Select destination</option>
                     <optgroup label="Your Linked Accounts">
                       {walletCards.filter(w => w.provider !== 'SimplePay').map(w => (
@@ -290,10 +291,33 @@ export default function Dashboard() {
                     </optgroup>
                   </select>
 
+                  {/* Recipient input — only show when a provider is selected */}
+                  {(() => {
+                    const toEl = document.getElementById('toSelect');
+                    const toId = toEl?.value;
+                    if (!toId || toId.startsWith('linked-') || toId.startsWith('simplepay-')) return null;
+                    const provider = providers.find(p => p.id === toId);
+                    const isSimplePay = toId === 'simplepay';
+                    return (
+                      <>
+                        <div style={{ ...s.sectionTitle, marginTop: '16px' }}>
+                          {isSimplePay ? 'Recipient SimplePay Account Number' : `Recipient ${provider?.name || ''} Number`}
+                        </div>
+                        <input
+                          style={s.input}
+                          placeholder={isSimplePay ? 'SP-12345678' : '077 123 456'}
+                          value={recipient}
+                          onChange={e => setRecipient(e.target.value)}
+                        />
+                      </>
+                    );
+                  })()}
+
+                  {/* Amount */}
                   <div style={{ ...s.sectionTitle, marginTop: '16px' }}>Amount (NLe)</div>
                   <div style={s.amountRow}>
                     <span style={s.currencyBadge}>NLe</span>
-                    <input style={s.inputAmount} type="number" min="5" placeholder="50" id="amountInput" />
+                    <input style={{ ...s.inputAmount, flex: 1 }} type="number" min="5" placeholder="50" id="amountInput" />
                   </div>
                   <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>
                     Fee: NLe 0 · Min: NLe 5
@@ -310,48 +334,47 @@ export default function Dashboard() {
                       setError('Please select FROM wallet, TO destination, and enter amount (min NLe 5)');
                       return;
                     }
+                    if (!toId.startsWith('linked-') && !toId.startsWith('simplepay-') && !recipient) {
+                      setError('Please enter recipient account / phone number');
+                      return;
+                    }
                     setError('');
                     const payload = { fromWalletId: fromId, amount: parseFloat(amount) };
                     if (String(toId).startsWith('linked-') || String(toId).startsWith('simplepay-')) {
                       payload.toWalletId = toId;
                     } else {
                       payload.toProvider = toId;
-                      payload.toRecipient = prompt('Recipient phone / account number:') || '';
+                      payload.toRecipient = recipient;
                     }
                     handleSend(payload);
                   }}>
                     {sending ? 'Processing...' : 'Send'}
                   </button>
-
-                  {/* PIN section */}
-                  {pinError && <div style={s.errorBox}>{pinError}</div>}
-                  {showSetPin ? (
-                    <div style={s.pinBox}>
-                      <div style={s.pinTitle}>🔐 Set a Transaction PIN</div>
-                      <div style={{ fontSize: '13px', color: '#888', marginBottom: '16px' }}>You need a 4-digit PIN to confirm transfers</div>
-                      <label style={s.label}>New PIN</label>
-                      <input style={{ ...s.input, letterSpacing: '8px', fontSize: '20px', textAlign: 'center' }} type="password" maxLength={4} placeholder="••••" value={newPin} onChange={e => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))} />
-                      <label style={s.label}>Confirm PIN</label>
-                      <input style={{ ...s.input, letterSpacing: '8px', fontSize: '20px', textAlign: 'center' }} type="password" maxLength={4} placeholder="••••" value={confirmPin} onChange={e => setConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 4))} />
-                      {pinSetMsg && <div style={{ ...s.errorBox, marginTop: '8px', background: pinSetMsg.includes('success') ? '#e6f7ed' : '#fde8e8', color: pinSetMsg.includes('success') ? '#1a6b3c' : '#a32d2d' }}>{pinSetMsg}</div>}
-                      <button style={{ ...s.btn, opacity: newPin.length === 4 && confirmPin.length === 4 ? 1 : 0.5 }} disabled={newPin.length !== 4 || confirmPin.length !== 4 || settingPin} onClick={handleSetPin}>
-                        {settingPin ? 'Setting PIN...' : 'Set PIN & continue'}
-                      </button>
-                    </div>
-                  ) : (
-                    <div style={s.pinBox}>
-                      <div style={s.pinTitle}>🔐 Enter Transaction PIN</div>
-                      <div style={{ fontSize: '13px', color: '#888', marginBottom: '16px', textAlign: 'center' }}>Enter your 4-digit PIN to authorize this transfer</div>
-                      <input
-                        style={{ ...s.input, letterSpacing: '12px', fontSize: '24px', textAlign: 'center', fontWeight: 600 }}
-                        type="password" maxLength={4} placeholder="••••" value={pin}
-                        onChange={e => { setPin(e.target.value.replace(/\D/g, '').slice(0, 4)); setPinError(''); }}
-                      />
-                      <div style={{ textAlign: 'center', marginTop: '10px' }}>
-                        <span style={{ fontSize: '12px', color: '#888', cursor: 'pointer' }} onClick={() => setShowSetPin(true)}>Forgot PIN? Set a new one</span>
-                      </div>
-                    </div>
-                  )}
+                </>
+              ) : (
+                /* Success receipt */
+                <div style={{ textAlign: 'center', padding: '24px 0' }}>
+                  <div style={s.successIcon}>✓</div>
+                  <div style={{ fontSize: '18px', fontWeight: 500, marginBottom: '8px' }}>Transfer successful!</div>
+                  <div style={{ fontSize: '14px', color: '#888', marginBottom: '20px' }}>
+                    NLe {Number(lastTxn.amount).toLocaleString()} sent
+                  </div>
+                  <div style={s.receiptCard}>
+                    {[
+                      ['Reference', lastTxn.reference],
+                      ['Amount', `NLe ${Number(lastTxn.amount).toLocaleString()}`],
+                      ['Fee', `NLe ${Number(lastTxn.fee || 0).toLocaleString()}`],
+                      ['Total', `NLe ${Number(lastTxn.total_deducted).toLocaleString()}`],
+                      ['New balance', `NLe ${Number(lastTxn.new_balance).toLocaleString()}`],
+                    ].map(([k, v]) => (
+                      <div key={k} style={s.receiptRow}><span style={{ color: '#888' }}>{k}</span><span style={{ fontWeight: 500 }}>{v}</span></div>
+                    ))}
+                  </div>
+                  <button style={s.btn} onClick={resetSend}>Send another transfer</button>
+                </div>
+              )}
+            </div>
+          )}
                 </>
               ) : (
                 /* Success receipt */
