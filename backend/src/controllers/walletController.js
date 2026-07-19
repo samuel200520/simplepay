@@ -235,10 +235,6 @@ exports.transferBetweenWallets = async (req, res) => {
     return res.status(400).json({ error: 'Minimum transfer amount is NLe 5' });
   }
 
-  const fromProviderForFee = fromProvider || (String(fromWalletId).startsWith('simplepay-') ? 'simplepay' : 'bank');
-  const toProviderForFee = toProvider || 'simplepay';
-  const { fee, transferType } = calculateTransactionFee(transferAmount, fromProviderForFee, toProviderForFee);
-  const totalDeducted = transferAmount + fee;
   const reference = 'SMP-' + uuidv4().replace(/-/g, '').slice(0, 12).toUpperCase();
 
   const hasLinkedWallets = await db.getTableExists('linked_wallets');
@@ -446,6 +442,9 @@ exports.transferBetweenWallets = async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Could not resolve recipient' });
     }
+
+    const { fee, transferType } = calculateTransactionFee(transferAmount, fromProvider, resolvedToProvider);
+    const totalDeducted = transferAmount + fee;
 
     const fromAdapter = fromProvider && fromProvider !== 'simplepay' ? getAdapter(fromProvider) : null;
     const toAdapter = resolvedToProvider && resolvedToProvider !== 'simplepay' ? getAdapter(resolvedToProvider) : null;
