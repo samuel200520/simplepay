@@ -299,20 +299,57 @@ exports.transferBetweenWallets = async (req, res) => {
       fromLinkedWallet = la.rows[0];
       fromProvider = fromLinkedWallet.provider_id;
       fromAccountNumber = fromLinkedWallet.account_number;
+      
       const w = await client.query('SELECT id, balance, currency FROM wallets WHERE user_id = $1 ORDER BY id DESC LIMIT 1', [userId]);
       if (!w.rows.length) {
         await client.query('ROLLBACK');
         return res.status(404).json({ error: 'SimplePay wallet not found' });
       }
       fromWallet = w.rows[0];
+      
+      const hasWalletBalances = await db.getTableExists('wallet_balances');
+      if (hasWalletBalances) {
+        try {
+          const balResult = await client.query(
+            'SELECT balance FROM wallet_balances WHERE linked_wallet_id = $1',
+            [linkedWalletId]
+          );
+          const linkedBalance = Number(balResult.rows[0]?.balance || 0);
+          if (linkedBalance < totalDeducted) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: `Insufficient ${fromProvider} balance (NLe ${linkedBalance.toLocaleString()})` });
+          }
+        } catch (err) {
+          console.error('wallet_balances check failed:', err.message);
+        }
+      }
     } else {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Invalid fromWalletId' });
     }
 
-    if (fromWallet.balance < totalDeducted) {
+    if (fromLinkedWallet) {
+      const hasWalletBalances = await db.getTableExists('wallet_balances');
+      if (hasWalletBalances) {
+        try {
+          const balResult = await client.query(
+            'SELECT balance FROM wallet_balances WHERE linked_wallet_id = $1',
+            [String(fromWalletId).split('-')[1]]
+          );
+          const linkedBalance = Number(balResult.rows[0]?.balance || 0);
+          if (linkedBalance < transferAmount) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: `Insufficient ${fromProvider} balance (NLe ${linkedBalance.toLocaleString()})` });
+          }
+        } catch (err) {
+          console.error('wallet_balances check failed:', err.message);
+        }
+      }
+    }
+
+    if (fromWallet.balance < fee) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Insufficient wallet balance' });
+      return res.status(400).json({ error: 'Insufficient SimplePay balance for fee' });
     }
 
     let toWallet = null;
@@ -449,7 +486,27 @@ exports.transferBetweenWallets = async (req, res) => {
       );
     }
 
-    await client.query('UPDATE wallets SET balance = balance - $1 WHERE id = $2', [totalDeducted, fromWallet.id]);
+    if (fromLinkedWallet) {
+      await client.query('UPDATE wallets SET balance = balance - $1 WHERE id = $2', [fee, fromWallet.id]);
+    } else {
+      await client.query('UPDATE wallets SET balance = balance - $1 WHERE id = $2', [totalDeducted, fromWallet.id]);
+    }
+
+    if (fromLinkedWallet) {
+      const hasWalletBalances = await db.getTableExists('wallet_balances');
+      if (hasWalletBalances) {
+        try {
+          await client.query(
+            `INSERT INTO wallet_balances (linked_wallet_id, balance, currency, last_sync)
+             VALUES ($1, -$2, 'SLE', NOW())
+             ON CONFLICT (linked_wallet_id) DO UPDATE SET balance = wallet_balances.balance + EXCLUDED.balance, last_sync = EXCLUDED.last_sync`,
+            [fromLinkedWallet.id, transferAmount]
+          );
+        } catch (err) {
+          console.error('wallet_balances debit failed:', err.message);
+        }
+      }
+    }
 
     await client.query(
       `INSERT INTO transactions
