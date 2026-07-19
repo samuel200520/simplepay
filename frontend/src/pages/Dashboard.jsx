@@ -16,6 +16,7 @@ export default function Dashboard() {
   const [loadError, setLoadError] = useState('');
   const [notification, setNotification] = useState(null);
   const [recipient, setRecipient] = useState('');
+  const [selectedToId, setSelectedToId] = useState('');
 
   // Link account form
   const [newAccount, setNewAccount] = useState({ provider_id: '', account_number: '' });
@@ -175,6 +176,7 @@ export default function Dashboard() {
   const resetSend = () => {
     setLastTxn(null);
     setError('');
+    setSelectedToId('');
     setRecipient('');
   };
 
@@ -245,7 +247,7 @@ export default function Dashboard() {
 
                   {/* TO: linked wallets + providers */}
                   <div style={{ ...s.sectionTitle, marginTop: '16px' }}>TO</div>
-                  <select style={s.select} id="toSelect" onChange={e => setRecipient('')}>
+                  <select style={s.select} id="toSelect" onChange={e => { setSelectedToId(e.target.value); setRecipient(''); }}>
                     <option value="">Select destination</option>
                     <optgroup label="Your Linked Accounts">
                       {walletCards.filter(w => w.provider !== 'SimplePay').map(w => (
@@ -264,26 +266,19 @@ export default function Dashboard() {
                   </select>
 
                   {/* Recipient input — only show when a provider is selected */}
-                  {(() => {
-                    const toEl = document.getElementById('toSelect');
-                    const toId = toEl?.value;
-                    if (!toId || toId.startsWith('linked-') || toId.startsWith('simplepay-')) return null;
-                    const provider = providers.find(p => p.id === toId);
-                    const isSimplePay = toId === 'simplepay';
-                    return (
-                      <>
-                        <div style={{ ...s.sectionTitle, marginTop: '16px' }}>
-                          {isSimplePay ? 'Recipient SimplePay Account Number' : `Recipient ${provider?.name || ''} Number`}
-                        </div>
-                        <input
-                          style={s.input}
-                          placeholder={isSimplePay ? 'SP-12345678' : '077 123 456'}
-                          value={recipient}
-                          onChange={e => setRecipient(e.target.value)}
-                        />
-                      </>
-                    );
-                  })()}
+                  {selectedToId && !selectedToId.startsWith('linked-') && !selectedToId.startsWith('simplepay-') && (
+                    <>
+                      <div style={{ ...s.sectionTitle, marginTop: '16px' }}>
+                        {selectedToId === 'simplepay' ? 'Recipient SimplePay Account Number' : `Recipient ${providers.find(p => p.id === selectedToId)?.name || ''} Number`}
+                      </div>
+                      <input
+                        style={s.input}
+                        placeholder={selectedToId === 'simplepay' ? 'SP-12345678' : '077 123 456'}
+                        value={recipient}
+                        onChange={e => setRecipient(e.target.value)}
+                      />
+                    </>
+                  )}
 
                   {/* Amount */}
                   <div style={{ ...s.sectionTitle, marginTop: '16px' }}>Amount (NLe)</div>
@@ -297,10 +292,9 @@ export default function Dashboard() {
 
                   <button style={s.btn} id="sendBtn" onClick={() => {
                     const fromEl = document.getElementById('fromSelect');
-                    const toEl = document.getElementById('toSelect');
                     const amtEl = document.getElementById('amountInput');
                     const fromId = fromEl.value;
-                    const toId = toEl.value;
+                    const toId = selectedToId;
                     const amount = amtEl.value;
                     if (!fromId || !toId || !amount || parseFloat(amount) < 5) {
                       setError('Please select FROM wallet, TO destination, and enter amount (min NLe 5)');
