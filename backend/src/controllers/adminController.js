@@ -1,4 +1,14 @@
 const db = require('../db');
+const jwt = require('jsonwebtoken');
+
+exports.login = async (req, res) => {
+  const { password } = req.body;
+  if (password !== process.env.ADMIN_PASSWORD) {
+    return res.status(401).json({ error: 'Incorrect admin password' });
+  }
+  const token = jwt.sign({ isAdmin: true }, process.env.JWT_SECRET, { expiresIn: '8h' });
+  res.json({ token });
+};
 
 exports.getOverview = async (req, res) => {
   try {
