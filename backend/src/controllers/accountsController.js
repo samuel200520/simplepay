@@ -54,15 +54,23 @@ exports.linkAccount = async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // Check if already exists in linked_accounts (legacy)
+    // Check if already exists in linked_accounts (including soft-deleted)
     const existingLegacy = await client.query(
-      'SELECT id FROM linked_accounts WHERE user_id = $1 AND provider_id = $2 AND account_number = $3',
+      'SELECT id, is_active FROM linked_accounts WHERE user_id = $1 AND provider_id = $2 AND account_number = $3',
       [userId, provider_id, account_number]
     );
 
     if (existingLegacy.rows.length > 0) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'This account is already linked' });
+      const existing = existingLegacy.rows[0];
+      if (existing.is_active) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'This account is already linked' });
+      }
+      // Reactivate soft-deleted account
+      await client.query('UPDATE linked_accounts SET is_active = true, account_name = $4 WHERE id = $5', [account_name || mapProviderToWalletName(provider_id, account_number), existing.id]);
+      await client.query('COMMIT');
+      const reactivated = await db.query('SELECT * FROM linked_accounts WHERE id = $1', [existing.id]);
+      return res.status(200).json({ account: reactivated.rows[0], reactivated: true });
     }
 
     // Generate wallet name
@@ -76,7 +84,6 @@ exports.linkAccount = async (req, res) => {
     );
 
     // Try to insert into linked_wallets (new table for multi-wallet support)
-    // If table doesn't exist yet, that's okay — we fall back to linked_accounts
     const hasLinkedWallets = await db.getTableExists('linked_wallets');
     let linkedWalletId = legacyResult.rows[0].id;
     if (hasLinkedWallets) {
@@ -92,7 +99,7 @@ exports.linkAccount = async (req, res) => {
       }
     }
 
-    // Create initial wallet_balance entry if table exists
+    // Create initial wallet_balance entry with 0 balance if table exists
     const hasWalletBalances = await db.getTableExists('wallet_balances');
     if (hasWalletBalances) {
       try {

@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS wallet_balances (
 CREATE TABLE IF NOT EXISTS wallet_transactions (
   id SERIAL PRIMARY KEY,
   wallet_id INTEGER NOT NULL REFERENCES wallets(id) ON DELETE CASCADE,
-  linked_wallet_id INTEGER REFERENCES linked_wallets(id) ON DELETE SET NULL,
+  linked_wallet_id INTEGER,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   type VARCHAR(50) NOT NULL, -- 'debit', 'credit', 'transfer_out', 'transfer_in', 'sync'
   amount DECIMAL(15, 2) NOT NULL,
@@ -45,8 +45,8 @@ CREATE TABLE IF NOT EXISTS wallet_transactions (
   to_provider VARCHAR(50),
   from_wallet_id INTEGER REFERENCES wallets(id),
   to_wallet_id INTEGER REFERENCES wallets(id),
-  from_linked_wallet_id INTEGER REFERENCES linked_wallets(id),
-  to_linked_wallet_id INTEGER REFERENCES linked_wallets(id),
+  from_linked_wallet_id INTEGER,
+  to_linked_wallet_id INTEGER,
   status VARCHAR(50) DEFAULT 'pending', -- 'pending', 'completed', 'failed', 'reversed'
   note TEXT,
   metadata JSONB,
