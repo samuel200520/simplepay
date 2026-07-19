@@ -31,7 +31,7 @@ export default function Dashboard() {
   const [pinSetMsg, setPinSetMsg] = useState('');
 
   useEffect(() => {
-    // Load all data on mount — providers first so they always show
+    // Load all data on mount — each independently so one failure doesn't block others
     const loadData = async () => {
       setLoadError('');
       try {
@@ -43,18 +43,25 @@ export default function Dashboard() {
       }
 
       try {
-        const [wRes, acctsRes, txnRes] = await Promise.all([
-          client.get('/wallets'),
-          client.get('/accounts'),
-          client.get('/transfer/history'),
-        ]);
+        const wRes = await client.get('/wallets');
         setWalletCards(wRes.data.wallets);
+      } catch (err) {
+        console.error('load wallets error:', err);
+      }
+
+      try {
+        const acctsRes = await client.get('/accounts');
         setLinkedAccounts(acctsRes.data.accounts);
+      } catch (err) {
+        console.error('load accounts error:', err);
+      }
+
+      try {
+        const txnRes = await client.get('/transfer/history');
         setTransactions(txnRes.data.transactions);
         checkForNewActivity(txnRes.data.transactions);
       } catch (err) {
-        console.error('load wallets/accounts/history error:', err);
-        setLoadError(err.response?.data?.error || 'Failed to load wallet data');
+        console.error('load history error:', err);
       }
     };
     loadData();

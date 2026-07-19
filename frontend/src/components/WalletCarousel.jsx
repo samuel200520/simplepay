@@ -75,8 +75,10 @@ export default function WalletCarousel({ wallets, onSelect, selectedId }) {
             key={w.id}
             style={{
               ...styles.cardWrapper,
-              opacity: 1,
-              transition: 'transform 0.3s, opacity 0.3s',
+              flexShrink: 0,
+              width: '100%',
+              maxWidth: '320px',
+              scrollSnapAlign: 'center',
             }}
             onClick={() => {
               scrollTo(i);
@@ -128,7 +130,8 @@ const styles = {
   },
   cardWrapper: {
     flexShrink: 0,
-    width: '320px',
+    width: '100%',
+    maxWidth: '320px',
     scrollSnapAlign: 'center',
     cursor: 'pointer',
   },

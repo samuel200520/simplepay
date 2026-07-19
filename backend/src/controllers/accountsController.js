@@ -77,23 +77,28 @@ exports.linkAccount = async (req, res) => {
 
     // Try to insert into linked_wallets (new table for multi-wallet support)
     // If table doesn't exist yet, that's okay — we fall back to linked_accounts
-    let newResult = null;
-    try {
-      newResult = await client.query(
-        `INSERT INTO linked_wallets (user_id, provider_id, account_number, account_name, wallet_name, is_active)
-         VALUES ($1, $2, $3, $4, $5, true) RETURNING *`,
-        [userId, provider_id, account_number, walletName, walletName]
-      );
+    const hasLinkedWallets = await db.getTableExists('linked_wallets');
+    if (hasLinkedWallets) {
+      try {
+        const newResult = await client.query(
+          `INSERT INTO linked_wallets (user_id, provider_id, account_number, account_name, wallet_name, is_active)
+           VALUES ($1, $2, $3, $4, $5, true) RETURNING *`,
+          [userId, provider_id, account_number, walletName, walletName]
+        );
 
-      // Create initial wallet_balance entry
-      await client.query(
-        `INSERT INTO wallet_balances (linked_wallet_id, balance, currency, last_sync)
-         VALUES ($1, 0, 'SLE', NOW())
-         ON CONFLICT (linked_wallet_id) DO NOTHING`,
-        [newResult.rows[0].id]
-      );
-    } catch (err) {
-      console.error('linked_wallets insert failed (table may not exist yet):', err.message);
+        // Create initial wallet_balance entry if table exists
+        const hasWalletBalances = await db.getTableExists('wallet_balances');
+        if (hasWalletBalances) {
+          await client.query(
+            `INSERT INTO wallet_balances (linked_wallet_id, balance, currency, last_sync)
+             VALUES ($1, 0, 'SLE', NOW())
+             ON CONFLICT (linked_wallet_id) DO NOTHING`,
+            [newResult.rows[0].id]
+          );
+        }
+      } catch (err) {
+        console.error('linked_wallets insert failed (non-critical):', err.message);
+      }
     }
 
     await client.query('COMMIT');
@@ -124,12 +129,19 @@ exports.unlinkAccount = async (req, res) => {
       [id, userId]
     );
 
-    // Soft delete in linked_wallets (new) - match by user_id and account_number
-    await client.query(
-      `UPDATE linked_wallets SET is_active = false 
-       WHERE user_id = $1 AND id = $2`,
-      [userId, id]
-    );
+    // Soft delete in linked_wallets (new) - match by user_id and id
+    const hasLinkedWallets = await db.getTableExists('linked_wallets');
+    if (hasLinkedWallets) {
+      try {
+        await client.query(
+          `UPDATE linked_wallets SET is_active = false 
+           WHERE user_id = $1 AND id = $2`,
+          [userId, id]
+        );
+      } catch (err) {
+        console.error('linked_wallets update failed (non-critical):', err.message);
+      }
+    }
 
     await client.query('COMMIT');
     res.json({ success: true });

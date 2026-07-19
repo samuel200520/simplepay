@@ -8,15 +8,10 @@ function mapProviderToWalletName(providerId, accountNumber) {
   return `${readable} Wallet`;
 }
 
-// TEMPORARY architecture mapping using existing tables:
-// - wallets table => SimplePay wallet
-// - linked_accounts => external wallets (placeholders)
-// - balance sync writes to wallet_balances if table exists; otherwise returns simulated balance.
 exports.getWalletCards = async (req, res) => {
   const userId = req.user.userId;
 
   try {
-    // SimplePay wallet - create if doesn't exist
     let simplepayWalletResult = await db.query(
       'SELECT id, balance, currency FROM wallets WHERE user_id = $1 ORDER BY id DESC LIMIT 1',
       [userId]
@@ -24,7 +19,6 @@ exports.getWalletCards = async (req, res) => {
 
     let simplepayWallet = simplepayWalletResult.rows[0];
 
-    // Create SimplePay wallet with NLe 2000 if doesn't exist
     if (!simplepayWallet) {
       const newWallet = await db.query(
         'INSERT INTO wallets (user_id, balance, currency) VALUES ($1, 2000, $2) RETURNING *',
@@ -33,7 +27,6 @@ exports.getWalletCards = async (req, res) => {
       simplepayWallet = newWallet.rows[0];
     }
 
-    // External linked accounts
     const linked = await db.query(
       'SELECT id, provider_id, account_number, account_name, is_active, created_at FROM linked_accounts WHERE user_id = $1 AND is_active = true ORDER BY created_at DESC',
       [userId]
@@ -41,7 +34,6 @@ exports.getWalletCards = async (req, res) => {
 
     const cards = [];
 
-    // Always add SimplePay wallet first
     cards.push({
       id: `simplepay-${simplepayWallet.id}`,
       provider: 'SimplePay',
@@ -54,7 +46,6 @@ exports.getWalletCards = async (req, res) => {
       _internal: { walletId: simplepayWallet.id },
     });
 
-    // Add linked wallets
     for (const la of linked.rows) {
       const provider = la.provider_id;
       cards.push({
@@ -82,9 +73,7 @@ exports.syncWallet = async (req, res) => {
   const { walletId } = req.params;
 
   try {
-    // walletId format: simplepay-<walletRowId> or linked-<linkedAccountId>
     if (String(walletId).startsWith('simplepay-')) {
-      // SimplePay balance is stored locally.
       const walletRowId = walletId.split('-')[1];
       const r = await db.query('SELECT id, balance, currency FROM wallets WHERE id = $1 AND user_id = $2', [walletRowId, userId]);
       if (!r.rows.length) return res.status(404).json({ error: 'Wallet not found' });
@@ -93,15 +82,20 @@ exports.syncWallet = async (req, res) => {
 
     if (String(walletId).startsWith('linked-')) {
       const linkedAccountId = walletId.split('-')[1];
+      
       let la = null;
-      try {
-        la = await db.query(
-          'SELECT id, provider_id, account_number FROM linked_wallets WHERE id = $1 AND user_id = $2 AND is_active = true',
-          [linkedAccountId, userId]
-        );
-      } catch (err) {
-        console.error('linked_wallets query failed, falling back to linked_accounts:', err.message);
+      const hasLinkedWallets = await db.getTableExists('linked_wallets');
+      if (hasLinkedWallets) {
+        try {
+          la = await db.query(
+            'SELECT id, provider_id, account_number FROM linked_wallets WHERE id = $1 AND user_id = $2 AND is_active = true',
+            [linkedAccountId, userId]
+          );
+        } catch (err) {
+          console.error('linked_wallets query failed:', err.message);
+        }
       }
+      
       if (!la || !la.rows.length) {
         la = await db.query(
           'SELECT id, provider_id, account_number FROM linked_accounts WHERE id = $1 AND user_id = $2 AND is_active = true',
@@ -114,19 +108,21 @@ exports.syncWallet = async (req, res) => {
       const adapter = getAdapter(provider_id);
       const sync = await adapter.getBalance({ accountNumber: account_number, userId });
 
-      // If wallet_balances exists, update it. Otherwise just return the synced value.
-      try {
-        await db.query(
-          `INSERT INTO wallet_balances (linked_wallet_id, balance, currency, last_sync)
-           VALUES ($1, $2, $3, NOW())
-           ON CONFLICT (linked_wallet_id) DO UPDATE
-             SET balance = EXCLUDED.balance,
-                 currency = EXCLUDED.currency,
-                 last_sync = EXCLUDED.last_sync`,
-          [linkedAccountId, sync.balance, sync.currency]
-        );
-      } catch {
-        // ignore until schema is created
+      const hasWalletBalances = await db.getTableExists('wallet_balances');
+      if (hasWalletBalances) {
+        try {
+          await db.query(
+            `INSERT INTO wallet_balances (linked_wallet_id, balance, currency, last_sync)
+             VALUES ($1, $2, $3, NOW())
+             ON CONFLICT (linked_wallet_id) DO UPDATE
+               SET balance = EXCLUDED.balance,
+                   currency = EXCLUDED.currency,
+                   last_sync = EXCLUDED.last_sync`,
+            [linkedAccountId, sync.balance, sync.currency]
+          );
+        } catch (err) {
+          console.error('wallet_balances insert failed:', err.message);
+        }
       }
 
       return res.json({
@@ -148,54 +144,54 @@ exports.getWalletHistory = async (req, res) => {
   const userId = req.user.userId;
   const { walletId } = req.params;
   try {
-    // Use the new wallet_transactions ledger. Falls back to legacy transactions table
-    // if no wallet_transactions exist for this user.
-    let query = `
-      SELECT wt.*, w.balance as wallet_balance,
-        CASE WHEN wt.type = 'transfer_in' THEN 'received' ELSE 'sent' END as direction
-      FROM wallet_transactions wt
-      LEFT JOIN wallets w ON wt.wallet_id = w.id AND w.user_id = $1
-      WHERE wt.user_id = $1
-    `;
-    const params = [userId];
+    const hasWalletTransactions = await db.getTableExists('wallet_transactions');
+    
+    if (hasWalletTransactions) {
+      let query = `
+        SELECT wt.*, w.balance as wallet_balance,
+          CASE WHEN wt.type = 'transfer_in' THEN 'received' ELSE 'sent' END as direction
+        FROM wallet_transactions wt
+        LEFT JOIN wallets w ON wt.wallet_id = w.id AND w.user_id = $1
+        WHERE wt.user_id = $1
+      `;
+      const params = [userId];
 
-    if (walletId) {
-      if (String(walletId).startsWith('simplepay-')) {
-        const walletRowId = String(walletId).split('-')[1];
-        query += ` AND wt.wallet_id = $2`;
-        params.push(walletRowId);
-      } else if (String(walletId).startsWith('linked-')) {
-        const linkedWalletId = String(walletId).split('-')[1];
-        query += ` AND (wt.to_linked_wallet_id = $2 OR wt.from_linked_wallet_id = $2)`;
-        params.push(linkedWalletId);
+      if (walletId) {
+        if (String(walletId).startsWith('simplepay-')) {
+          const walletRowId = String(walletId).split('-')[1];
+          query += ` AND wt.wallet_id = $2`;
+          params.push(walletRowId);
+        } else if (String(walletId).startsWith('linked-')) {
+          const linkedWalletId = String(walletId).split('-')[1];
+          query += ` AND (wt.to_linked_wallet_id = $2 OR wt.from_linked_wallet_id = $2)`;
+          params.push(linkedWalletId);
+        }
+      }
+
+      query += ` ORDER BY wt.created_at DESC LIMIT 50`;
+      const result = await db.query(query, params);
+      
+      if (result.rows.length > 0) {
+        return res.json({ transactions: result.rows });
       }
     }
 
-    query += ` ORDER BY wt.created_at DESC LIMIT 50`;
-    const result = await db.query(query, params);
-    
-    // Fallback: if no wallet_transactions exist, try legacy table
-    if (result.rows.length === 0) {
-      const legacyResult = await db.query(
-        `SELECT *,
-          CASE WHEN fee = 0 THEN 'received' ELSE 'sent' END as direction
-         FROM transactions
-         WHERE sender_user_id = $1
-         ORDER BY created_at DESC
-         LIMIT 50`,
-        [userId]
-      );
-      return res.json({ transactions: legacyResult.rows });
-    }
-
-    res.json({ transactions: result.rows });
+    const legacyResult = await db.query(
+      `SELECT *,
+        CASE WHEN fee = 0 THEN 'received' ELSE 'sent' END as direction
+       FROM transactions
+       WHERE sender_user_id = $1
+       ORDER BY created_at DESC
+       LIMIT 50`,
+      [userId]
+    );
+    res.json({ transactions: legacyResult.rows });
   } catch (err) {
     console.error('getWalletHistory error:', err);
     res.status(500).json({ error: 'Could not fetch history' });
   }
 };
 
-// Atomic wallet-to-wallet transfer implementation with cross-provider support
 exports.transferBetweenWallets = async (req, res) => {
   const userId = req.user.userId;
   const { fromWalletId, toWalletId, toProvider, toRecipient, amount, note } = req.body || {};
@@ -229,6 +225,9 @@ exports.transferBetweenWallets = async (req, res) => {
   const totalDeducted = transferAmount + fee;
   const reference = 'SMP-' + uuidv4().replace(/-/g, '').slice(0, 12).toUpperCase();
 
+  // Check table existence BEFORE starting transaction
+  const hasLinkedWallets = await db.getTableExists('linked_wallets');
+  
   const client = await db.pool.connect();
   
   try {
@@ -253,14 +252,18 @@ exports.transferBetweenWallets = async (req, res) => {
     } else if (String(fromWalletId).startsWith('linked-')) {
       const linkedWalletId = String(fromWalletId).split('-')[1];
       let la = null;
-      try {
-        la = await client.query(
-          'SELECT * FROM linked_wallets WHERE id = $1 AND user_id = $2 AND is_active = true',
-          [linkedWalletId, userId]
-        );
-      } catch (err) {
-        console.error('linked_wallets query failed, falling back to linked_accounts:', err.message);
+      
+      if (hasLinkedWallets) {
+        try {
+          la = await client.query(
+            'SELECT * FROM linked_wallets WHERE id = $1 AND user_id = $2 AND is_active = true',
+            [linkedWalletId, userId]
+          );
+        } catch (err) {
+          console.error('linked_wallets query failed:', err.message);
+        }
       }
+      
       if (!la || !la.rows.length) {
         la = await client.query(
           'SELECT * FROM linked_accounts WHERE id = $1 AND user_id = $2 AND is_active = true',
@@ -271,6 +274,7 @@ exports.transferBetweenWallets = async (req, res) => {
           return res.status(404).json({ error: 'From wallet not found' });
         }
       }
+      
       fromLinkedWallet = la.rows[0];
       fromProvider = fromLinkedWallet.provider_id;
       fromAccountNumber = fromLinkedWallet.account_number;
@@ -310,14 +314,18 @@ exports.transferBetweenWallets = async (req, res) => {
       } else if (String(toWalletId).startsWith('linked-')) {
         const linkedWalletId = String(toWalletId).split('-')[1];
         let la = null;
-        try {
-          la = await client.query(
-            'SELECT id, provider_id, account_number FROM linked_wallets WHERE id = $1 AND user_id = $2 AND is_active = true',
-            [linkedWalletId, userId]
-          );
-        } catch (err) {
-          console.error('linked_wallets query failed, falling back to linked_accounts:', err.message);
+        
+        if (hasLinkedWallets) {
+          try {
+            la = await client.query(
+              'SELECT id, provider_id, account_number FROM linked_wallets WHERE id = $1 AND user_id = $2 AND is_active = true',
+              [linkedWalletId, userId]
+            );
+          } catch (err) {
+            console.error('linked_wallets query failed:', err.message);
+          }
         }
+        
         if (!la || !la.rows.length) {
           la = await client.query(
             'SELECT id, provider_id, account_number FROM linked_accounts WHERE id = $1 AND user_id = $2 AND is_active = true',
@@ -328,6 +336,7 @@ exports.transferBetweenWallets = async (req, res) => {
             return res.status(404).json({ error: 'To wallet not found' });
           }
         }
+        
         toLinkedWallet = la.rows[0];
         resolvedToProvider = toLinkedWallet.provider_id;
         resolvedToAccountNumber = toLinkedWallet.account_number;
@@ -376,7 +385,6 @@ exports.transferBetweenWallets = async (req, res) => {
       ]
     );
 
-    // Record fee as a separate ledger entry for revenue tracking
     if (fee > 0) {
       await client.query(
         `INSERT INTO wallet_transactions
@@ -472,47 +480,57 @@ exports.transferBetweenWallets = async (req, res) => {
   }
 };
 
-// keep old placeholder for now (unused)
 exports.createTransferIntent = async () => {
   return { id: uuidv4() };
 };
 
-// Get wallet transaction history from new ledger
 exports.getWalletTransactions = async (req, res) => {
   const userId = req.user.userId;
   const { walletId } = req.params;
   const { limit = 50, offset = 0 } = req.query;
 
   try {
-    let query = `
-      SELECT wt.*, w.balance as wallet_balance
-      FROM wallet_transactions wt
-      LEFT JOIN wallets w ON wt.wallet_id = w.id AND w.user_id = $1
-      WHERE wt.user_id = $1
-    `;
-    const params = [userId];
+    const hasWalletTransactions = await db.getTableExists('wallet_transactions');
+    
+    if (hasWalletTransactions) {
+      let query = `
+        SELECT wt.*, w.balance as wallet_balance
+        FROM wallet_transactions wt
+        LEFT JOIN wallets w ON wt.wallet_id = w.id AND w.user_id = $1
+        WHERE wt.user_id = $1
+      `;
+      const params = [userId];
 
-    // Filter by specific wallet if provided
-    if (walletId) {
-      if (String(walletId).startsWith('simplepay-')) {
-        const walletRowId = String(walletId).split('-')[1];
-        query += ` AND wt.wallet_id = $2`;
-        params.push(walletRowId);
-      } else if (String(walletId).startsWith('linked-')) {
-        const linkedWalletId = String(walletId).split('-')[1];
-        query += ` AND (wt.to_linked_wallet_id = $2 OR wt.from_linked_wallet_id = $2)`;
-        params.push(linkedWalletId);
+      if (walletId) {
+        if (String(walletId).startsWith('simplepay-')) {
+          const walletRowId = String(walletId).split('-')[1];
+          query += ` AND wt.wallet_id = $2`;
+          params.push(walletRowId);
+        } else if (String(walletId).startsWith('linked-')) {
+          const linkedWalletId = String(walletId).split('-')[1];
+          query += ` AND (wt.to_linked_wallet_id = $2 OR wt.from_linked_wallet_id = $2)`;
+          params.push(linkedWalletId);
+        }
+      }
+
+      const limitNum = parseInt(limit) || 50;
+      const offsetNum = parseInt(offset) || 0;
+      const paramIdx = params.length + 1;
+      query += ` ORDER BY wt.created_at DESC LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`;
+      params.push(limitNum, offsetNum);
+
+      const result = await db.query(query, params);
+      if (result.rows.length > 0) {
+        res.json({ transactions: result.rows });
+        return;
       }
     }
 
-    const limitNum = parseInt(limit) || 50;
-    const offsetNum = parseInt(offset) || 0;
-    const paramIdx = params.length + 1;
-    query += ` ORDER BY wt.created_at DESC LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`;
-    params.push(limitNum, offsetNum);
-
-    const result = await db.query(query, params);
-    res.json({ transactions: result.rows });
+    const legacyResult = await db.query(
+      `SELECT * FROM transactions WHERE sender_user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+      [userId, parseInt(limit) || 50, parseInt(offset) || 0]
+    );
+    res.json({ transactions: legacyResult.rows });
   } catch (err) {
     console.error('getWalletTransactions error:', err);
     res.status(500).json({ error: 'Could not fetch wallet transactions' });
