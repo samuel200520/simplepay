@@ -22,6 +22,15 @@ export default function Dashboard() {
   const [linkingAccount, setLinkingAccount] = useState(false);
   const [linkError, setLinkError] = useState('');
 
+  // PIN management
+  const [pin, setPin] = useState('');
+  const [newPin, setNewPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
+  const [settingPin, setSettingPin] = useState(false);
+  const [pinSetMsg, setPinSetMsg] = useState('');
+
+  const [recipient, setRecipient] = useState('');
+
   useEffect(() => {
     // Load all data on mount — each independently so one failure doesn't block others
     const loadData = async () => {
