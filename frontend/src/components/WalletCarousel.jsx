@@ -1,16 +1,6 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import WalletCard from './WalletCard';
 
-/**
- * WalletCarousel — horizontal scrollable wallet card carousel.
- *
- * Props:
- *   wallets    array of wallet objects
- *   onSelect   (wallet) => void  — called when user clicks a card
- *   selectedId string | null
- *
- * Shows left/right navigation arrows and dot indicators.
- */
 export default function WalletCarousel({ wallets, onSelect, selectedId }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const containerRef = useRef(null);
@@ -23,6 +13,21 @@ export default function WalletCarousel({ wallets, onSelect, selectedId }) {
       if (card) card.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
     }
   }, [wallets.length]);
+
+  useEffect(() => {
+    if (wallets.length <= 1) return;
+    const timer = setInterval(() => {
+      setCurrentIndex(prev => (prev + 1) % wallets.length);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [wallets.length]);
+
+  useEffect(() => {
+    if (containerRef.current) {
+      const card = containerRef.current.children[currentIndex];
+      if (card) card.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    }
+  }, [currentIndex]);
 
   if (!wallets || wallets.length === 0) {
     return (

@@ -92,8 +92,17 @@ export default function Dashboard() {
     setLinkingAccount(true);
     setLinkError('');
     try {
-      await client.post('/accounts', newAccount);
+      const linkRes = await client.post('/accounts', newAccount);
       await refreshAccounts();
+      const newAcc = linkRes.data.account;
+      if (newAcc?.id) {
+        try {
+          await client.post(`/wallets/linked-${newAcc.id}/sync`);
+          await refreshAccounts();
+        } catch (syncErr) {
+          console.error('Auto-sync failed:', syncErr);
+        }
+      }
       setNewAccount({ provider_id: '', account_number: '' });
     } catch (err) {
       setLinkError(err.response?.data?.error || 'Could not link account');
