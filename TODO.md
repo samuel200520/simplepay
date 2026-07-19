@@ -28,4 +28,3 @@
 ## Step 7: Testing + validation
 - [x] Add basic integration tests or runbook commands.
 - [x] Manual sanity checks: link wallet → wallet appears → sync updates → transfer updates both balances.
-

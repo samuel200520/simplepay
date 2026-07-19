@@ -1,24 +1,72 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
   ScrollView, TextInput, Alert, ActivityIndicator,
-  SafeAreaView, StatusBar
+  SafeAreaView, StatusBar, Dimensions
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import client from '../api/client';
 
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const CARD_WIDTH = SCREEN_WIDTH - 48;
+
+const providerColors = {
+  SimplePay: '#1a6b3c', orange: '#ff6600', africell: '#e4003a', qmoney: '#8a2be2',
+  rokel: '#1a6b3c', slcb: '#003580', gtbank: '#f37021', ecobank: '#003087',
+  union: '#5c1a8a', access: '#c8102e', bsl: '#1a4080', uba: '#e4003a',
+};
+
+const providerShort = {
+  SimplePay: 'SP', orange: 'OM', africell: 'AM', qmoney: 'QM',
+  rokel: 'RCB', slcb: 'SLC', gtbank: 'GTB', ecobank: 'ECO',
+  union: 'UTB', access: 'ACC', bsl: 'BSL', uba: 'UBA',
+};
+
+function WalletCard({ wallet, active }) {
+  const color = providerColors[wallet.provider] || '#555';
+  const short = providerShort[wallet.provider] || wallet.provider.slice(0, 3).toUpperCase();
+  const isActive = wallet.status === 'Active';
+  const isLinked = wallet.status === 'Linked';
+
+  return (
+    <View style={[styles.card, { borderColor: active ? color : '#222' }]}>
+      <View style={[styles.cardBg, { backgroundColor: color }]} />
+      <View style={styles.cardContent}>
+        <View style={styles.topRow}>
+          <View style={styles.chip}>
+            <View style={styles.chipInner} />
+          </View>
+          <View style={[styles.badge, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+            <Text style={styles.badgeText}>{short}</Text>
+          </View>
+        </View>
+        <Text style={styles.walletName}>{wallet.walletName}</Text>
+        <View style={styles.balanceRow}>
+          <Text style={styles.currency}>{wallet.currency || 'SLE'}</Text>
+          <Text style={styles.balance}>{Number(wallet.balance).toLocaleString()}</Text>
+        </View>
+        <View style={styles.statusRow}>
+          <View style={[styles.dot, { backgroundColor: isActive ? '#7edeab' : isLinked ? '#ffd699' : '#ccc' }]} />
+          <Text style={styles.statusText}>{isActive ? 'Active' : isLinked ? 'Linked' : wallet.status}</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 export default function DashboardScreen() {
-  const { user, wallet, logout, fetchProfile } = useAuth();
+  const { user, logout, fetchProfile } = useAuth();
   const [tab, setTab] = useState('send');
+  const [wallets, setWallets] = useState([]);
   const [providers, setProviders] = useState([]);
   const [transactions, setTransactions] = useState([]);
-  const [wallets, setWallets] = useState([]);
-  const [selectedFrom, setSelectedFrom] = useState(null);
-  const [selectedTo, setSelectedTo] = useState(null);
-  const [step, setStep] = useState(1);
-  const [form, setForm] = useState({ recipient: '', amount: '', note: '' });
+  const [selectedFrom, setSelectedFrom] = useState('');
+  const [selectedTo, setSelectedTo] = useState('');
+  const [amount, setAmount] = useState('');
   const [sending, setSending] = useState(false);
   const [lastTxn, setLastTxn] = useState(null);
+  const [currentCard, setCurrentCard] = useState(0);
+  const scrollRef = useRef(null);
 
   useEffect(() => {
     client.get('/user/providers').then(r => setProviders(r.data.providers));
@@ -27,31 +75,46 @@ export default function DashboardScreen() {
   }, []);
 
   function calculateFee(amount) {
-    if (amount <= 50) return 1;
-    if (amount <= 200) return 3;
-    if (amount <= 500) return 7;
-    if (amount <= 1000) return 12;
-    return Math.round(amount * 0.01);
+    const a = parseFloat(amount) || 0;
+    if (a <= 50) return 1;
+    if (a <= 200) return 3;
+    if (a <= 500) return 7;
+    if (a <= 1000) return 12;
+    return Math.round(a * 0.01);
   }
-  const fee = form.amount ? calculateFee(parseFloat(form.amount)) : 0;
-  const total = form.amount ? parseFloat(form.amount) + fee : 0;
+
+  const fee = calculateFee(amount);
+  const total = (parseFloat(amount) || 0) + fee;
 
   const handleSend = async () => {
+    if (!selectedFrom || !selectedTo || !amount) {
+      Alert.alert('Error', 'Please fill in all fields');
+      return;
+    }
     setSending(true);
     try {
-      const res = await client.post('/wallets/transfers', {
-        fromWalletId: selectedFrom.id,
-        toWalletId: selectedTo.id,
-        amount: parseFloat(form.amount),
-        note: form.note,
-      });
+      const payload = {
+        fromWalletId: selectedFrom,
+        amount: parseFloat(amount),
+      };
+      if (String(selectedTo).startsWith('linked-')) {
+        payload.toWalletId = selectedTo;
+      } else {
+        payload.toProvider = selectedTo;
+        payload.toRecipient = selectedTo === 'simplepay'
+          ? (await promptAsync('Recipient SimplePay account number:')) || ''
+          : (await promptAsync('Recipient phone / account number:')) || '';
+      }
+
+      const res = await client.post('/wallets/transfers', payload);
       setLastTxn(res.data);
       await fetchProfile();
-      // Refresh wallets to show updated balances
       client.get('/wallets').then(r => setWallets(r.data.wallets)).catch(() => {});
       const history = await client.get('/transfer/history');
       setTransactions(history.data.transactions);
-      setStep(4);
+      setSelectedFrom('');
+      setSelectedTo('');
+      setAmount('');
     } catch (err) {
       Alert.alert('Transfer Failed', err.response?.data?.error || 'Please try again');
     } finally {
@@ -59,15 +122,19 @@ export default function DashboardScreen() {
     }
   };
 
-  const resetSend = () => {
-    setSelectedFrom(null); setSelectedTo(null);
-    setForm({ recipient: '', amount: '', note: '' });
-    setStep(1); setLastTxn(null);
-  };
+  const promptAsync = (msg) => new Promise((resolve) => {
+    Alert.prompt ? Alert.prompt(msg, '', (text) => resolve(text)) : resolve('');
+  });
+
+  const onScroll = useCallback((e) => {
+    const x = e.nativeEvent.contentOffset.x;
+    const index = Math.round(x / CARD_WIDTH);
+    setCurrentCard(Math.min(Math.max(index, 0), wallets.length - 1));
+  }, [wallets.length]);
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar backgroundColor="#1a6b3c" barStyle="light-content" />
+      <StatusBar backgroundColor="#1a1a1a" barStyle="light-content" />
       <View style={styles.header}>
         <View>
           <Text style={styles.logo}>Simple<Text style={styles.logoLight}>Pay</Text></Text>
@@ -82,15 +149,31 @@ export default function DashboardScreen() {
         </View>
       </View>
 
-      <View style={styles.balanceBar}>
-        <View>
-          <Text style={styles.balanceLabel}>SimplePay Wallet</Text>
-          <Text style={styles.balanceAmount}>Le {wallet ? Number(wallet.balance).toLocaleString() : '—'}</Text>
-        </View>
-        <View style={{ alignItems: 'flex-end' }}>
-          <Text style={styles.balanceLabel}>Status</Text>
-          <Text style={styles.verifiedText}>● Verified</Text>
-        </View>
+      {/* Wallet Carousel */}
+      <View style={styles.carouselSection}>
+        <ScrollView
+          ref={scrollRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          snapToInterval={CARD_WIDTH + 16}
+          decelerationRate="fast"
+          contentContainerStyle={{ paddingHorizontal: 16, gap: 16 }}
+          onMomentumScrollEnd={onScroll}
+        >
+          {wallets.map((w, i) => (
+            <View key={w.id} style={{ width: CARD_WIDTH }}>
+              <WalletCard wallet={w} active={i === currentCard} />
+            </View>
+          ))}
+        </ScrollView>
+        {wallets.length > 1 && (
+          <View style={styles.dots}>
+            {wallets.map((_, i) => (
+              <View key={i} style={[styles.dot, { backgroundColor: i === currentCard ? '#fff' : 'rgba(255,255,255,0.3)', width: i === currentCard ? 24 : 8 }]} />
+            ))}
+          </View>
+        )}
       </View>
 
       <View style={styles.tabs}>
@@ -109,137 +192,76 @@ export default function DashboardScreen() {
             <View style={styles.networkBadge}>
               <Text style={styles.networkBadgeText}>● Network live — {providers.length} providers connected</Text>
             </View>
-            <View style={styles.stepBar}>
-              {[1, 2, 3].map(n => (
-                <View key={n} style={[styles.stepDot, { backgroundColor: step > n ? '#1a6b3c' : step === n ? '#7edeab' : '#ddd' }]} />
+
+            {/* FROM dropdown */}
+            <Text style={styles.sectionTitle}>FROM</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.providerScroll}>
+              {wallets.map(w => (
+                <TouchableOpacity
+                  key={w.id}
+                  style={[styles.pill, selectedFrom === w.id && styles.pillSelected]}
+                  onPress={() => setSelectedFrom(w.id)}
+                >
+                  <Text style={styles.pillText}>{w.walletName}</Text>
+                  <Text style={styles.pillSub}>NLe {Number(w.balance).toLocaleString()}</Text>
+                </TouchableOpacity>
               ))}
+            </ScrollView>
+
+            {/* TO dropdown */}
+            <Text style={[styles.sectionTitle, { marginTop: 16 }]}>TO</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.providerScroll}>
+              {providers.map(p => (
+                <TouchableOpacity
+                  key={p.id}
+                  style={[styles.pill, selectedTo === p.id && styles.pillSelected]}
+                  onPress={() => setSelectedTo(p.id)}
+                >
+                  <View style={[styles.pillDot, { backgroundColor: p.color }]} />
+                  <Text style={styles.pillText}>{p.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            {/* Amount */}
+            <Text style={styles.label}>Amount (SLL)</Text>
+            <View style={styles.amountRow}>
+              <View style={styles.currencyBadge}><Text style={styles.currencyText}>Le</Text></View>
+              <TextInput
+                style={[styles.input, { flex: 1 }]}
+                placeholder="50000"
+                value={amount}
+                onChangeText={setAmount}
+                keyboardType="numeric"
+              />
             </View>
-
-            {step === 1 && (
-              <View>
-                <Text style={styles.sectionTitle}>FROM</Text>
-                <View style={styles.providerGrid}>
-                  {wallets.filter(w => w.provider === 'SimplePay').map(w => {
-                    return (
-                      <TouchableOpacity 
-                        key={w.id} 
-                        style={[styles.providerCard, selectedFrom?.id === w.id && styles.providerSelected]} 
-                        onPress={() => setSelectedFrom({ 
-                          id: w.id, 
-                          name: w.walletName || w.provider,
-                          short: 'SP',
-                          color: '#1a6b3c',
-                          type: 'wallet',
-                          balance: w.balance
-                        })}
-                      >
-                        <View style={[styles.providerIcon, { backgroundColor: '#1a6b3c' }]}>
-                          <Text style={styles.providerIconText}>SP</Text>
-                        </View>
-                        <Text style={styles.providerName}>{w.walletName || w.provider}</Text>
-                        <Text style={styles.providerType}>Wallet</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-                <Text style={styles.divider}>↓ to</Text>
-                <Text style={styles.sectionTitle}>TO</Text>
-                <View style={styles.providerGrid}>
-                  {wallets.map(w => {
-                    const provider = providers.find(p => p.id === w.provider);
-                    const isSimplePay = w.provider === 'SimplePay';
-                    return (
-                      <TouchableOpacity 
-                        key={w.id} 
-                        style={[styles.providerCard, selectedTo?.id === w.id && styles.providerSelected]} 
-                        onPress={() => setSelectedTo({ 
-                          id: w.id, 
-                          name: w.walletName || w.provider,
-                          short: isSimplePay ? 'SP' : provider?.short || '??',
-                          color: isSimplePay ? '#1a6b3c' : provider?.color || '#888',
-                          type: isSimplePay ? 'wallet' : 'linked',
-                          balance: w.balance
-                        })}
-                      >
-                        <View style={[styles.providerIcon, { backgroundColor: isSimplePay ? '#1a6b3c' : provider?.color }]}>
-                          <Text style={styles.providerIconText}>{isSimplePay ? 'SP' : provider?.short}</Text>
-                        </View>
-                        <Text style={styles.providerName}>{w.walletName || w.provider}</Text>
-                        <Text style={styles.providerType}>{isSimplePay ? 'Wallet' : 'Linked'}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-                <TouchableOpacity style={[styles.btn, (!selectedFrom || !selectedTo) && styles.btnDisabled]} disabled={!selectedFrom || !selectedTo || selectedFrom.id === selectedTo.id} onPress={() => setStep(2)}>
-                  <Text style={styles.btnText}>Continue →</Text>
-                </TouchableOpacity>
-              </View>
+            {parseFloat(amount) >= 5 && (
+              <Text style={styles.feeText}>Fee: Le {fee.toLocaleString()} · Total: Le {total.toLocaleString()}</Text>
             )}
 
-            {step === 2 && (
-              <View>
-                <Text style={styles.routeText}><Text style={{ fontWeight: '600' }}>{selectedFrom?.name}</Text> → <Text style={{ fontWeight: '600' }}>{selectedTo?.name}</Text></Text>
-                <Text style={styles.label}>Recipient phone / account</Text>
-                <TextInput style={styles.input} placeholder="077 123 456" value={form.recipient} onChangeText={v => setForm({ ...form, recipient: v })} keyboardType="phone-pad" />
-                <Text style={styles.label}>Amount (SLL)</Text>
-                <View style={styles.amountRow}>
-                  <View style={styles.currencyBadge}><Text style={styles.currencyText}>Le</Text></View>
-                  <TextInput style={[styles.input, { flex: 1 }]} placeholder="50000" value={form.amount} onChangeText={v => setForm({ ...form, amount: v })} keyboardType="numeric" />
-                </View>
-                <Text style={styles.feeText}>Fee: Le {fee.toLocaleString()} · Total: Le {total.toLocaleString()}</Text>
-                <Text style={styles.label}>Note (optional)</Text>
-                <TextInput style={styles.input} placeholder="e.g. School fees" value={form.note} onChangeText={v => setForm({ ...form, note: v })} />
-                <TouchableOpacity style={[styles.btn, (!form.recipient || !form.amount) && styles.btnDisabled]} disabled={!form.recipient || !form.amount} onPress={() => setStep(3)}>
-                  <Text style={styles.btnText}>Review transfer →</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.backBtn} onPress={() => setStep(1)}>
-                  <Text style={styles.backBtnText}>← Back</Text>
-                </TouchableOpacity>
-              </View>
-            )}
+            <TouchableOpacity
+              style={[styles.btn, (!selectedFrom || !selectedTo || !amount) && styles.btnDisabled]}
+              disabled={!selectedFrom || !selectedTo || !amount || sending}
+              onPress={handleSend}
+            >
+              {sending ? <ActivityIndicator color="white" /> : <Text style={styles.btnText}>Send</Text>}
+            </TouchableOpacity>
 
-            {step === 3 && (
-              <View>
-                <Text style={styles.sectionTitle}>CONFIRM TRANSFER</Text>
-                <View style={styles.receiptCard}>
-                  {[
-                    ['From', selectedFrom?.name],
-                    ['To', selectedTo?.name],
-                    ['Recipient', form.recipient],
-                    ['Amount', `Le ${Number(form.amount).toLocaleString()}`],
-                    ['Fee', `Le ${fee.toLocaleString()}`],
-                    ['Total deducted', `Le ${total.toLocaleString()}`],
-                    ...(form.note ? [['Note', form.note]] : []),
-                  ].map(([k, v]) => (
-                    <View key={k} style={styles.receiptRow}>
-                      <Text style={styles.receiptLabel}>{k}</Text>
-                      <Text style={styles.receiptValue}>{v}</Text>
-                    </View>
-                  ))}
-                </View>
-                <TouchableOpacity style={styles.btn} onPress={handleSend} disabled={sending}>
-                  {sending ? <ActivityIndicator color="white" /> : <Text style={styles.btnText}>Confirm & send 🔒</Text>}
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.backBtn} onPress={() => setStep(2)}>
-                  <Text style={styles.backBtnText}>← Back</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {step === 4 && lastTxn && (
+            {/* Success state */}
+            {lastTxn && (
               <View style={{ alignItems: 'center', paddingVertical: 24 }}>
                 <View style={styles.successIcon}>
                   <Text style={styles.successIconText}>✓</Text>
                 </View>
                 <Text style={styles.successTitle}>Transfer successful!</Text>
-                <Text style={styles.successSub}>Le {Number(lastTxn.amount).toLocaleString()} sent from {selectedFrom?.name} to {selectedTo?.name}</Text>
-                <View style={[styles.receiptCard, { width: '100%' }]}>
+                <Text style={styles.successSub}>Le {Number(lastTxn.amount).toLocaleString()} sent</Text>
+                <View style={styles.receipt}>
                   {[
                     ['Reference', lastTxn.reference],
-                    ['Amount sent', `Le ${Number(lastTxn.amount).toLocaleString()}`],
-                    ['Total charged', `Le ${Number(lastTxn.total_deducted).toLocaleString()}`],
+                    ['Amount', `Le ${Number(lastTxn.amount).toLocaleString()}`],
+                    ['Fee', `Le ${Number(lastTxn.fee || 0).toLocaleString()}`],
+                    ['Total', `Le ${Number(lastTxn.total_deducted).toLocaleString()}`],
                     ['New balance', `Le ${Number(lastTxn.new_balance).toLocaleString()}`],
-                    ['Status', '✓ Completed'],
                   ].map(([k, v]) => (
                     <View key={k} style={styles.receiptRow}>
                       <Text style={styles.receiptLabel}>{k}</Text>
@@ -247,7 +269,7 @@ export default function DashboardScreen() {
                     </View>
                   ))}
                 </View>
-                <TouchableOpacity style={styles.btn} onPress={resetSend}>
+                <TouchableOpacity style={styles.btn} onPress={() => setLastTxn(null)}>
                   <Text style={styles.btnText}>Send another transfer</Text>
                 </TouchableOpacity>
               </View>
@@ -262,7 +284,7 @@ export default function DashboardScreen() {
             {transactions.map(t => (
               <View key={t.id} style={styles.txnItem}>
                 <View style={[styles.txnIcon, { backgroundColor: '#1a6b3c' }]}>
-                  <Text style={styles.txnIconText}>{t.to_provider.slice(0, 2).toUpperCase()}</Text>
+                  <Text style={styles.txnIconText}>{t.to_provider?.slice(0, 2).toUpperCase() || '??'}</Text>
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.txnName}>{t.receiver_identifier}</Text>
@@ -277,9 +299,7 @@ export default function DashboardScreen() {
 
         {tab === 'network' && (
           <View>
-            <View style={styles.networkBadge}>
-              <Text style={styles.networkBadgeText}>● Live network</Text>
-            </View>
+            <View style={styles.networkBadge}><Text style={styles.networkBadgeText}>● Live network</Text></View>
             <View style={styles.statGrid}>
               {[
                 ['Active providers', providers.length, 'Banks + MNOs'],
@@ -293,14 +313,14 @@ export default function DashboardScreen() {
               ))}
             </View>
             <Text style={styles.sectionTitle}>CONNECTED PROVIDERS</Text>
-            <View style={styles.providerGrid}>
+            <View style={styles.providerRow}>
               {providers.map(p => (
-                <View key={p.id} style={styles.providerCard}>
-                  <View style={[styles.providerIcon, { backgroundColor: p.color }]}>
-                    <Text style={styles.providerIconText}>{p.short}</Text>
+                <View key={p.id} style={styles.netCard}>
+                  <View style={[styles.netIcon, { backgroundColor: p.color }]}>
+                    <Text style={styles.netIconText}>{p.short}</Text>
                   </View>
-                  <Text style={styles.providerName}>{p.name}</Text>
-                  <Text style={[styles.providerType, { color: '#1a6b3c' }]}>● Active</Text>
+                  <Text style={styles.netName}>{p.name}</Text>
+                  <Text style={styles.netStatus}>● Active</Text>
                 </View>
               ))}
             </View>
@@ -312,8 +332,8 @@ export default function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f0f0f0' },
-  header: { backgroundColor: '#1a6b3c', padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  container: { flex: 1, backgroundColor: '#0f0f0f' },
+  header: { backgroundColor: '#1a1a1a', padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#333' },
   logo: { fontSize: 22, fontWeight: '700', color: 'white' },
   logoLight: { color: '#7edeab' },
   headerSub: { fontSize: 11, color: 'rgba(255,255,255,0.7)', marginTop: 2 },
@@ -321,58 +341,70 @@ const styles = StyleSheet.create({
   userName: { fontSize: 14, fontWeight: '500', color: 'white' },
   logoutBtn: { borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)', borderRadius: 4, paddingHorizontal: 8, paddingVertical: 2, marginTop: 4 },
   logoutText: { fontSize: 11, color: 'rgba(255,255,255,0.7)' },
-  balanceBar: { backgroundColor: '#145c32', padding: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  balanceLabel: { fontSize: 12, color: 'rgba(255,255,255,0.7)' },
-  balanceAmount: { fontSize: 22, fontWeight: '600', color: 'white' },
-  verifiedText: { fontSize: 13, color: '#7edeab' },
-  tabs: { flexDirection: 'row', backgroundColor: 'white', borderBottomWidth: 1, borderBottomColor: '#eee' },
+  carouselSection: { backgroundColor: '#1a1a1a', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#333' },
+  card: { height: 190, borderRadius: 16, overflow: 'hidden', borderWidth: 2 },
+  cardBg: { ...StyleSheet.absoluteFillObject, opacity: 0.85 },
+  cardContent: { padding: 20, flex: 1, justifyContent: 'space-between' },
+  topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  chip: { width: 36, height: 26, backgroundColor: '#ffd700', borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
+  chipInner: { width: 24, height: 16, borderWidth: 1.5, borderColor: '#b8960f', borderRadius: 2 },
+  badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  badgeText: { color: 'white', fontSize: 11, fontWeight: '600' },
+  walletName: { color: 'white', fontSize: 14, fontWeight: '500', opacity: 0.9, marginTop: 4 },
+  balanceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 8 },
+  currency: { color: 'white', fontSize: 14, fontWeight: '600', opacity: 0.8 },
+  balance: { color: 'white', fontSize: 28, fontWeight: '700', letterSpacing: 1 },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  statusText: { color: 'white', fontSize: 11, opacity: 0.85, fontWeight: '500' },
+  dots: { flexDirection: 'row', justifyContent: 'center', gap: 6, marginTop: 12 },
+  tabs: { flexDirection: 'row', backgroundColor: '#1a1a1a', borderBottomWidth: 1, borderBottomColor: '#333' },
   tab: { flex: 1, paddingVertical: 12, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent' },
-  tabActive: { borderBottomColor: '#1a6b3c' },
+  tabActive: { borderBottomColor: '#7edeab' },
   tabText: { fontSize: 13, color: '#888' },
-  tabTextActive: { color: '#1a6b3c', fontWeight: '600' },
+  tabTextActive: { color: '#7edeab', fontWeight: '600' },
   content: { flex: 1 },
   networkBadge: { backgroundColor: '#e6f7ed', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, alignSelf: 'flex-start', marginBottom: 12 },
   networkBadgeText: { color: '#1a6b3c', fontSize: 11 },
-  stepBar: { flexDirection: 'row', gap: 6, marginBottom: 20 },
-  stepDot: { flex: 1, height: 3, borderRadius: 2 },
   sectionTitle: { fontSize: 11, fontWeight: '600', color: '#888', letterSpacing: 0.5, marginBottom: 10 },
-  providerGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
-  providerCard: { width: '30%', borderWidth: 1.5, borderColor: '#eee', borderRadius: 10, padding: 10, alignItems: 'center', backgroundColor: 'white' },
-  providerSelected: { borderColor: '#1a6b3c', backgroundColor: '#e6f7ed' },
-  providerIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
-  providerIconText: { color: 'white', fontSize: 11, fontWeight: '600' },
-  providerName: { fontSize: 10, fontWeight: '500', textAlign: 'center', lineHeight: 14 },
-  providerType: { fontSize: 9, color: '#888', marginTop: 2, textAlign: 'center' },
-  divider: { textAlign: 'center', color: '#888', fontSize: 13, marginVertical: 12 },
-  label: { fontSize: 13, color: '#555', marginBottom: 6, marginTop: 12 },
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 10, padding: 12, fontSize: 15, backgroundColor: 'white', color: '#1a1a1a' },
+  providerScroll: { marginBottom: 8 },
+  pill: { paddingHorizontal: 16, paddingVertical: 10, backgroundColor: '#2a2a2a', borderRadius: 10, marginRight: 8, borderWidth: 2, borderColor: '#333', flexDirection: 'row', alignItems: 'center', gap: 8 },
+  pillSelected: { borderColor: '#7edeab', backgroundColor: '#0d2a1a' },
+  pillText: { color: 'white', fontSize: 13, fontWeight: '500' },
+  pillSub: { color: '#888', fontSize: 11, marginLeft: 4 },
+  pillDot: { width: 12, height: 12, borderRadius: 6 },
+  label: { fontSize: 13, color: '#aaa', marginBottom: 6, marginTop: 12 },
+  input: { borderWidth: 2, borderColor: '#333', borderRadius: 10, padding: 12, fontSize: 16, backgroundColor: '#2a2a2a', color: 'white' },
   amountRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
-  currencyBadge: { backgroundColor: '#e6f7ed', borderWidth: 1, borderColor: '#a8dfc0', borderRadius: 10, padding: 12 },
-  currencyText: { color: '#1a6b3c', fontWeight: '600', fontSize: 13 },
+  currencyBadge: { backgroundColor: '#0d2a1a', borderWidth: 2, borderColor: '#1a6b3c', borderRadius: 10, padding: 12 },
+  currencyText: { color: '#7edeab', fontWeight: '600', fontSize: 13 },
   feeText: { fontSize: 12, color: '#888', marginTop: 4 },
-  btn: { backgroundColor: '#1a6b3c', borderRadius: 10, padding: 14, alignItems: 'center', marginTop: 12 },
+  btn: { backgroundColor: '#1a6b3c', borderRadius: 10, padding: 14, alignItems: 'center', marginTop: 12, borderWidth: 2, borderColor: '#0d4a28' },
   btnDisabled: { opacity: 0.5 },
   btnText: { color: 'white', fontSize: 15, fontWeight: '600' },
-  backBtn: { backgroundColor: '#f5f5f5', borderWidth: 1, borderColor: '#ddd', borderRadius: 10, padding: 12, alignItems: 'center', marginTop: 8 },
-  backBtnText: { color: '#333', fontSize: 14 },
-  receiptCard: { backgroundColor: '#f8f8f8', borderRadius: 10, padding: 14, marginBottom: 16 },
-  receiptRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#eee' },
-  receiptLabel: { color: '#888', fontSize: 13 },
-  receiptValue: { fontWeight: '500', fontSize: 13, color: '#1a1a1a' },
-  routeText: { fontSize: 13, color: '#888', marginBottom: 16 },
   successIcon: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#e6f7ed', alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
   successIconText: { fontSize: 30, color: '#1a6b3c' },
-  successTitle: { fontSize: 20, fontWeight: '600', marginBottom: 8 },
+  successTitle: { fontSize: 20, fontWeight: '600', color: 'white', marginBottom: 8 },
   successSub: { fontSize: 14, color: '#888', marginBottom: 20, textAlign: 'center' },
-  txnItem: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderWidth: 1, borderColor: '#eee', borderRadius: 10, marginBottom: 8, backgroundColor: 'white' },
+  receipt: { backgroundColor: '#2a2a2a', borderRadius: 10, padding: 14, marginBottom: 16, width: '100%' },
+  receiptRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#333' },
+  receiptLabel: { color: '#888', fontSize: 13 },
+  receiptValue: { fontWeight: '500', fontSize: 13, color: 'white' },
+  txnItem: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderWidth: 1, borderColor: '#333', borderRadius: 10, marginBottom: 8, backgroundColor: '#1a1a1a' },
   txnIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   txnIconText: { color: 'white', fontSize: 11, fontWeight: '600' },
-  txnName: { fontSize: 14, fontWeight: '500', color: '#1a1a1a' },
+  txnName: { fontSize: 14, fontWeight: '500', color: 'white' },
   txnMeta: { fontSize: 12, color: '#888' },
-  txnAmount: { color: '#a32d2d', fontWeight: '500', fontSize: 14 },
+  txnAmount: { color: '#ff6b6b', fontWeight: '500', fontSize: 14 },
   statGrid: { flexDirection: 'row', gap: 10, marginBottom: 16 },
-  statCard: { flex: 1, backgroundColor: '#f8f8f8', borderRadius: 10, padding: 12 },
+  statCard: { flex: 1, backgroundColor: '#2a2a2a', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#333' },
   statLabel: { fontSize: 11, color: '#888' },
-  statVal: { fontSize: 22, fontWeight: '600', color: '#1a1a1a' },
+  statVal: { fontSize: 22, fontWeight: '600', color: 'white' },
   statSub: { fontSize: 11, color: '#888', marginTop: 2 },
+  providerRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  netCard: { width: '30%', backgroundColor: '#2a2a2a', borderWidth: 1, borderColor: '#333', borderRadius: 10, padding: 12, alignItems: 'center' },
+  netIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+  netIconText: { color: 'white', fontSize: 11, fontWeight: '600' },
+  netName: { fontSize: 10, fontWeight: '500', color: 'white', textAlign: 'center' },
+  netStatus: { fontSize: 9, color: '#1a6b3c', marginTop: 2 },
 });
