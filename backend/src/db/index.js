@@ -19,7 +19,25 @@ pool.on('error', (err) => {
   process.exit(-1);
 });
 
+async function checkTableExists(tableName) {
+  const result = await pool.query(
+    `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1`,
+    [tableName]
+  );
+  return result.rows.length > 0;
+}
+
+const tableCache = {};
+
+async function getTableExists(tableName) {
+  if (!(tableName in tableCache)) {
+    tableCache[tableName] = await checkTableExists(tableName);
+  }
+  return tableCache[tableName];
+}
+
 module.exports = {
   query: (text, params) => pool.query(text, params),
   pool,
+  getTableExists,
 };
