@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
   transaction_pin TEXT,
   is_verified BOOLEAN DEFAULT false,
   kyc_status VARCHAR(50) DEFAULT 'pending',
+  simplepay_account_number VARCHAR(50) UNIQUE,
   created_at TIMESTAMP DEFAULT NOW()
 );
 

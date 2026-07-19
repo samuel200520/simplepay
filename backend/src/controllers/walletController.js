@@ -158,10 +158,18 @@ exports.getWalletHistory = async (req, res) => {
 // Atomic wallet-to-wallet transfer implementation with cross-provider support
 exports.transferBetweenWallets = async (req, res) => {
   const userId = req.user.userId;
-  const { fromWalletId, toWalletId, amount, note } = req.body || {};
+  const { fromWalletId, toWalletId, toProvider, toRecipient, amount, note } = req.body || {};
 
-  if (!fromWalletId || !toWalletId || amount === undefined || amount === null) {
+  if (!fromWalletId || amount === undefined || amount === null) {
     return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  if (!toWalletId && !toProvider) {
+    return res.status(400).json({ error: 'Missing recipient: provide toWalletId or toProvider with toRecipient' });
+  }
+
+  if (toProvider && !toRecipient) {
+    return res.status(400).json({ error: 'Missing recipient identifier for selected provider' });
   }
 
   const transferAmount = Number(amount);
@@ -181,16 +189,13 @@ exports.transferBetweenWallets = async (req, res) => {
   const totalDeducted = transferAmount + fee;
   const reference = 'SMP-' + uuidv4().replace(/-/g, '').slice(0, 12).toUpperCase();
 
-  // Start database transaction for atomicity
   const client = await db.pool.connect();
   
   try {
     await client.query('BEGIN');
 
-    // Resolve from wallet (who pays)
     let fromWallet = null;
     let fromLinkedWallet = null;
-    let fromType = 'simplepay';
     let fromProvider = null;
     let fromAccountNumber = null;
     let fromIsSimplepay = false;
@@ -206,17 +211,12 @@ exports.transferBetweenWallets = async (req, res) => {
       }
       fromWallet = r.rows[0];
     } else if (String(fromWalletId).startsWith('linked-')) {
-      fromType = 'linked';
       const linkedWalletId = String(fromWalletId).split('-')[1];
-      
-      // Try new linked_wallets table first, fallback to linked_accounts
       let la = await client.query(
         'SELECT * FROM linked_wallets WHERE id = $1 AND user_id = $2 AND is_active = true',
         [linkedWalletId, userId]
       );
-      
       if (!la.rows.length) {
-        // Compatibility: check linked_accounts
         la = await client.query(
           'SELECT * FROM linked_accounts WHERE id = $1 AND user_id = $2 AND is_active = true',
           [linkedWalletId, userId]
@@ -226,13 +226,9 @@ exports.transferBetweenWallets = async (req, res) => {
           return res.status(404).json({ error: 'From wallet not found' });
         }
       }
-      
       fromLinkedWallet = la.rows[0];
       fromProvider = fromLinkedWallet.provider_id;
       fromAccountNumber = fromLinkedWallet.account_number;
-      
-      // For external wallet as source, we need to check if user has sufficient SimplePay balance
-      // (Interim: all transfers go through SimplePay wallet)
       const w = await client.query('SELECT id, balance, currency FROM wallets WHERE user_id = $1 ORDER BY id DESC LIMIT 1', [userId]);
       if (!w.rows.length) {
         await client.query('ROLLBACK');
@@ -249,55 +245,72 @@ exports.transferBetweenWallets = async (req, res) => {
       return res.status(400).json({ error: 'Insufficient wallet balance' });
     }
 
-    // Resolve to wallet (who receives)
     let toWallet = null;
     let toLinkedWallet = null;
-    let toProvider = null;
-    let toAccountNumber = null;
     let toIsSimplepay = false;
+    let resolvedToProvider = toProvider;
+    let resolvedToAccountNumber = toRecipient;
 
-    if (String(toWalletId).startsWith('simplepay-')) {
-      toIsSimplepay = true;
-      toProvider = 'simplepay';
-      const walletRowId = String(toWalletId).split('-')[1];
-      const w = await client.query('SELECT id, balance FROM wallets WHERE id = $1 AND user_id = $2', [walletRowId, userId]);
-      if (!w.rows.length) {
-        await client.query('ROLLBACK');
-        return res.status(404).json({ error: 'To wallet not found' });
-      }
-      toWallet = w.rows[0];
-    } else if (String(toWalletId).startsWith('linked-')) {
-      const linkedWalletId = String(toWalletId).split('-')[1];
-      
-      let la = await client.query(
-        'SELECT id, provider_id, account_number FROM linked_wallets WHERE id = $1 AND user_id = $2 AND is_active = true',
-        [linkedWalletId, userId]
-      );
-      
-      if (!la.rows.length) {
-        la = await client.query(
-          'SELECT id, provider_id, account_number FROM linked_accounts WHERE id = $1 AND user_id = $2 AND is_active = true',
-          [linkedWalletId, userId]
-        );
-        if (!la.rows.length) {
+    if (toWalletId) {
+      if (String(toWalletId).startsWith('simplepay-')) {
+        toIsSimplepay = true;
+        resolvedToProvider = 'simplepay';
+        const walletRowId = String(toWalletId).split('-')[1];
+        const w = await client.query('SELECT id, balance FROM wallets WHERE id = $1 AND user_id = $2', [walletRowId, userId]);
+        if (!w.rows.length) {
           await client.query('ROLLBACK');
           return res.status(404).json({ error: 'To wallet not found' });
         }
+        toWallet = w.rows[0];
+      } else if (String(toWalletId).startsWith('linked-')) {
+        const linkedWalletId = String(toWalletId).split('-')[1];
+        let la = await client.query(
+          'SELECT id, provider_id, account_number FROM linked_wallets WHERE id = $1 AND user_id = $2 AND is_active = true',
+          [linkedWalletId, userId]
+        );
+        if (!la.rows.length) {
+          la = await client.query(
+            'SELECT id, provider_id, account_number FROM linked_accounts WHERE id = $1 AND user_id = $2 AND is_active = true',
+            [linkedWalletId, userId]
+          );
+          if (!la.rows.length) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'To wallet not found' });
+          }
+        }
+        toLinkedWallet = la.rows[0];
+        resolvedToProvider = toLinkedWallet.provider_id;
+        resolvedToAccountNumber = toLinkedWallet.account_number;
       }
-      
-      toLinkedWallet = la.rows[0];
-      toProvider = toLinkedWallet.provider_id;
-      toAccountNumber = toLinkedWallet.account_number;
-    } else {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Invalid toWalletId' });
+    } else if (toProvider && toRecipient) {
+      if (toProvider === 'simplepay') {
+        toIsSimplepay = true;
+        const recipientUser = await client.query(
+          'SELECT id FROM users WHERE simplepay_account_number = $1',
+          [toRecipient]
+        );
+        if (!recipientUser.rows.length) {
+          await client.query('ROLLBACK');
+          return res.status(404).json({ error: 'SimplePay account not found' });
+        }
+        const recipientWallet = await client.query('SELECT id, balance FROM wallets WHERE user_id = $1 ORDER BY id DESC LIMIT 1', [recipientUser.rows[0].id]);
+        if (!recipientWallet.rows.length) {
+          await client.query('ROLLBACK');
+          return res.status(404).json({ error: 'Recipient wallet not found' });
+        }
+        toWallet = recipientWallet.rows[0];
+        resolvedToAccountNumber = toRecipient;
+      }
     }
 
-    // Get provider adapter for external transfers
-    const fromAdapter = fromProvider && fromProvider !== 'simplepay' ? getAdapter(fromProvider) : null;
-    const toAdapter = toProvider && toProvider !== 'simplepay' ? getAdapter(toProvider) : null;
+    if (!resolvedToProvider) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Could not resolve recipient' });
+    }
 
-    // Create wallet transaction record (pending)
+    const fromAdapter = fromProvider && fromProvider !== 'simplepay' ? getAdapter(fromProvider) : null;
+    const toAdapter = resolvedToProvider && resolvedToProvider !== 'simplepay' ? getAdapter(resolvedToProvider) : null;
+
     await client.query(
       `INSERT INTO wallet_transactions
         (wallet_id, user_id, type, amount, currency, balance_before, balance_after, 
@@ -307,47 +320,36 @@ exports.transferBetweenWallets = async (req, res) => {
       [
         fromWallet.id, userId, totalDeducted, fromWallet.currency || 'SLE',
         fromWallet.balance, fromWallet.balance - totalDeducted,
-        reference, fromProvider, toProvider, fromWallet.id, toWallet?.id || null,
+        reference, fromProvider, resolvedToProvider, fromWallet.id, toWallet?.id || null,
         fromLinkedWallet?.id || null, toLinkedWallet?.id || null,
         note || null
       ]
     );
 
-    // Deduct from SimplePay wallet (interim: all transfers use SimplePay as funding source)
     await client.query('UPDATE wallets SET balance = balance - $1 WHERE id = $2', [totalDeducted, fromWallet.id]);
 
-    // Create legacy transaction record
     await client.query(
       `INSERT INTO transactions
         (reference, sender_user_id, receiver_identifier, from_provider, to_provider, amount, fee, total_deducted, note, status)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending')`,
-      [reference, userId, toIsSimplepay ? 'internal' : (toAccountNumber || 'internal'), fromProvider, toProvider, transferAmount, fee, totalDeducted, note || null]
+      [reference, userId, toIsSimplepay ? resolvedToAccountNumber : (resolvedToAccountNumber || 'internal'), fromProvider, resolvedToProvider, transferAmount, fee, totalDeducted, note || null]
     );
 
-    // Execute provider legs
     let providerResult = null;
-    
-    // If sending to external provider, call their adapter
     if (!toIsSimplepay && toAdapter) {
       providerResult = await toAdapter.initTransfer({
-        to: toAccountNumber,
+        to: resolvedToAccountNumber,
         amount: transferAmount,
       });
     } else if (fromIsSimplepay && toIsSimplepay) {
-      // Internal SimplePay to SimplePay transfer
       providerResult = { providerReference: null, settledAt: new Date().toISOString(), creditedInternally: true };
     }
 
-    // Credit recipient
     let creditedInternally = false;
     if (toIsSimplepay && toWallet) {
-      // Credit to SimplePay wallet
       const balanceBefore = toWallet.balance;
       const balanceAfter = balanceBefore + transferAmount;
-      
       await client.query('UPDATE wallets SET balance = balance + $1 WHERE id = $2', [transferAmount, toWallet.id]);
-      
-      // Create credit transaction
       await client.query(
         `INSERT INTO wallet_transactions
           (wallet_id, user_id, type, amount, currency, balance_before, balance_after,
@@ -356,16 +358,13 @@ exports.transferBetweenWallets = async (req, res) => {
          VALUES ($1, $2, 'transfer_in', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'completed', $14)`,
         [
           toWallet.id, userId, transferAmount, toWallet.currency || 'SLE',
-          balanceBefore, balanceAfter, reference, fromProvider, toProvider,
+          balanceBefore, balanceAfter, reference, fromProvider, resolvedToProvider,
           fromWallet.id, toWallet.id, fromLinkedWallet?.id || null, toLinkedWallet?.id || null,
           note || null
         ]
       );
-      
       creditedInternally = true;
     } else if (toLinkedWallet) {
-      // For external wallet destination, credit SimplePay wallet as placeholder (interim)
-      // In production, this would be handled by provider webhook/callback
       const creditedWallet = await client.query('SELECT id, balance FROM wallets WHERE user_id = $1 ORDER BY id DESC LIMIT 1', [userId]);
       if (creditedWallet.rows.length) {
         const cw = creditedWallet.rows[0];
@@ -374,16 +373,12 @@ exports.transferBetweenWallets = async (req, res) => {
       }
     }
 
-    // Update transaction status to completed
     await client.query("UPDATE transactions SET status = 'completed', completed_at = NOW() WHERE reference = $1", [reference]);
-
-    // Update wallet_transactions status to completed
     await client.query(
       "UPDATE wallet_transactions SET status = 'completed', completed_at = NOW() WHERE reference = $1",
       [reference]
     );
 
-    // Get new balance
     const newBalanceRow = await client.query('SELECT balance FROM wallets WHERE user_id = $1 ORDER BY id DESC LIMIT 1', [userId]);
     const newBalance = newBalanceRow.rows[0] ? newBalanceRow.rows[0].balance : null;
 
@@ -397,7 +392,7 @@ exports.transferBetweenWallets = async (req, res) => {
       total_deducted: totalDeducted,
       new_balance: newBalance,
       from_provider: fromProvider,
-      to_provider: toProvider,
+      to_provider: resolvedToProvider,
       provider_reference: providerResult?.providerReference || null,
       settled_at: providerResult?.settledAt || null,
       credited_internally: creditedInternally,

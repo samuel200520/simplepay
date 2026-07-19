@@ -2,6 +2,11 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('../db');
 
+function generateSimplePayAccountNumber() {
+  const digits = Math.floor(10000000 + Math.random() * 90000000);
+  return `SP-${digits}`;
+}
+
 exports.register = async (req, res) => {
   const { full_name, phone, email, password } = req.body;
 
@@ -14,9 +19,20 @@ exports.register = async (req, res) => {
     const salt = await bcrypt.genSalt(12);
     const password_hash = await bcrypt.hash(password, salt);
 
+    let simplepay_account_number = generateSimplePayAccountNumber();
+    let accountExists = true;
+    while (accountExists) {
+      const check = await db.query('SELECT id FROM users WHERE simplepay_account_number = $1', [simplepay_account_number]);
+      if (check.rows.length === 0) {
+        accountExists = false;
+      } else {
+        simplepay_account_number = generateSimplePayAccountNumber();
+      }
+    }
+
     const userResult = await db.query(
-      'INSERT INTO users (full_name, phone, email, password_hash, is_verified) VALUES ($1, $2, $3, $4, $5) RETURNING id, full_name, phone',
-      [full_name, phone, email, password_hash, true]
+      'INSERT INTO users (full_name, phone, email, password_hash, is_verified, simplepay_account_number) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, full_name, phone, simplepay_account_number',
+      [full_name, phone, email, password_hash, true, simplepay_account_number]
     );
     const user = userResult.rows[0];
 
@@ -34,7 +50,7 @@ exports.register = async (req, res) => {
     res.status(201).json({
       message: 'Account created successfully',
       token,
-      user: { id: user.id, full_name: user.full_name, phone: user.phone },
+      user: { id: user.id, full_name: user.full_name, phone: user.phone, simplepay_account_number: user.simplepay_account_number },
     });
   } catch (err) {
     console.error('Register error:', err);
@@ -47,7 +63,7 @@ exports.login = async (req, res) => {
 
   try {
     const result = await db.query(
-      'SELECT id, full_name, phone, password_hash FROM users WHERE phone = $1',
+      'SELECT id, full_name, phone, simplepay_account_number FROM users WHERE phone = $1',
       [phone]
     );
     if (result.rows.length === 0) {
@@ -69,7 +85,7 @@ exports.login = async (req, res) => {
     res.json({
       message: 'Login successful',
       token,
-      user: { id: user.id, full_name: user.full_name, phone: user.phone },
+      user: { id: user.id, full_name: user.full_name, phone: user.phone, simplepay_account_number: user.simplepay_account_number },
     });
   } catch (err) {
     console.error('Login error:', err);
