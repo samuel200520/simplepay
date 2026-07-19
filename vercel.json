@@ -1,7 +1,6 @@
 {
+  "installCommand": "cd frontend && npm ci",
   "buildCommand": "cd frontend && npm run build",
   "outputDirectory": "frontend/build",
-  "installCommand": "cd frontend && npm ci",
-  "framework": "create-react-app",
-  "ignoreCommand": "cd .. && git diff HEAD~1 --quiet -- frontend/"
+  "framework": null
 }
