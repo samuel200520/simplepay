@@ -24,8 +24,6 @@ export default function Dashboard() {
 
   // PIN management
   const [pin, setPin] = useState('');
-  const [pinError, setPinError] = useState('');
-  const [showSetPin, setShowSetPin] = useState(false);
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [settingPin, setSettingPin] = useState(false);
