@@ -143,7 +143,8 @@ export default function Dashboard() {
     try {
       const res = await client.post('/wallets/transfers', {
         fromWalletId: selectedFrom.id,
-        toWalletId: selectedTo.id,
+        toProvider: selectedTo.id,
+        toRecipient: form.recipient,
         amount: parseFloat(form.amount),
         note: form.note,
       });
@@ -231,11 +232,9 @@ export default function Dashboard() {
 
               {step === 1 && (
                 <>
-                  <div style={s.sectionTitle}>From</div>
+                  <div style={s.sectionTitle}>From (your wallet)</div>
                   <div style={s.providerGrid}>
-                    {walletCards.map(w => {
-                      const provider = providers.find(p => p.id === w.provider);
-                      const isSimplePay = w.provider === 'SimplePay';
+                    {walletCards.filter(w => w.provider === 'SimplePay').map(w => {
                       return (
                         <div 
                           key={w.id} 
@@ -246,15 +245,15 @@ export default function Dashboard() {
                           onClick={() => setSelectedFrom({ 
                             id: w.id, 
                             name: w.walletName || w.provider,
-                            short: isSimplePay ? 'SP' : provider?.short || '??',
-                            color: isSimplePay ? '#1a6b3c' : provider?.color || '#888',
-                            type: isSimplePay ? 'wallet' : 'linked',
+                            short: 'SP',
+                            color: '#1a6b3c',
+                            type: 'wallet',
                             balance: w.balance
                           })}
                         >
-                          <div style={{ ...s.providerIcon, background: isSimplePay ? '#1a6b3c' : provider?.color }}>{isSimplePay ? 'SP' : provider?.short}</div>
+                          <div style={{ ...s.providerIcon, background: '#1a6b3c' }}>SP</div>
                           <div style={s.providerName}>{w.walletName || w.provider}</div>
-                          <div style={s.providerType}>{isSimplePay ? 'Wallet' : 'Linked'}</div>
+                          <div style={s.providerType}>Wallet</div>
                         </div>
                       );
                     })}
@@ -262,31 +261,26 @@ export default function Dashboard() {
                   <div style={s.divider}>↓ to</div>
                   <div style={s.sectionTitle}>To</div>
                   <div style={s.providerGrid}>
-                    {walletCards.map(w => {
-                      const provider = providers.find(p => p.id === w.provider);
-                      const isSimplePay = w.provider === 'SimplePay';
-                      return (
-                        <div 
-                          key={w.id} 
-                          style={{ 
-                            ...s.providerCard, 
-                            ...(selectedTo?.id === w.id ? s.providerSelected : {})
-                          }} 
-                          onClick={() => setSelectedTo({ 
-                            id: w.id, 
-                            name: w.walletName || w.provider,
-                            short: isSimplePay ? 'SP' : provider?.short || '??',
-                            color: isSimplePay ? '#1a6b3c' : provider?.color || '#888',
-                            type: isSimplePay ? 'wallet' : 'linked',
-                            balance: w.balance
-                          })}
-                        >
-                          <div style={{ ...s.providerIcon, background: isSimplePay ? '#1a6b3c' : provider?.color }}>{isSimplePay ? 'SP' : provider?.short}</div>
-                          <div style={s.providerName}>{w.walletName || w.provider}</div>
-                          <div style={s.providerType}>{isSimplePay ? 'Wallet' : 'Linked'}</div>
-                        </div>
-                      );
-                    })}
+                    {providers.map(p => (
+                      <div 
+                        key={p.id} 
+                        style={{ 
+                          ...s.providerCard, 
+                          ...(selectedTo?.id === p.id ? s.providerSelected : {})
+                        }} 
+                        onClick={() => setSelectedTo({ 
+                          id: p.id, 
+                          name: p.name,
+                          short: p.short,
+                          color: p.color,
+                          type: p.type
+                        })}
+                      >
+                        <div style={{ ...s.providerIcon, background: p.color }}>{p.short}</div>
+                        <div style={s.providerName}>{p.name}</div>
+                        <div style={s.providerType}>{p.type.replace('_', ' ')}</div>
+                      </div>
+                    ))}
                   </div>
                   <button style={{ ...s.btn, opacity: selectedFrom && selectedTo ? 1 : 0.5 }} disabled={!selectedFrom || !selectedTo || selectedFrom.id === selectedTo.id} onClick={() => setStep(2)}>
                     Continue →
@@ -299,8 +293,8 @@ export default function Dashboard() {
                   <div style={{ fontSize: '13px', color: '#888', marginBottom: '16px' }}>
                     <strong>{selectedFrom?.name}</strong> → <strong>{selectedTo?.name}</strong>
                   </div>
-                  <label style={s.label}>Recipient phone / account</label>
-                  <input style={s.input} placeholder="077 123 456" value={form.recipient} onChange={e => setForm({ ...form, recipient: e.target.value })} />
+                  <label style={s.label}>{selectedTo?.id === 'simplepay' ? 'Recipient SimplePay Account Number' : 'Recipient phone / account number'}</label>
+                  <input style={s.input} placeholder={selectedTo?.id === 'simplepay' ? 'SP-12345678' : '077 123 456'} value={form.recipient} onChange={e => setForm({ ...form, recipient: e.target.value })} />
                   <label style={s.label}>Amount (NLe)</label>
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <span style={s.currencyBadge}>NLe</span>
