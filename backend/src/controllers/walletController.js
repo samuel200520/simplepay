@@ -227,6 +227,7 @@ exports.transferBetweenWallets = async (req, res) => {
 
   // Check table existence BEFORE starting transaction
   const hasLinkedWallets = await db.getTableExists('linked_wallets');
+  const hasWalletTransactions = await db.getTableExists('wallet_transactions');
   
   const client = await db.pool.connect();
   
@@ -370,22 +371,24 @@ exports.transferBetweenWallets = async (req, res) => {
     const fromAdapter = fromProvider && fromProvider !== 'simplepay' ? getAdapter(fromProvider) : null;
     const toAdapter = resolvedToProvider && resolvedToProvider !== 'simplepay' ? getAdapter(resolvedToProvider) : null;
 
-    await client.query(
-      `INSERT INTO wallet_transactions
-        (wallet_id, user_id, type, amount, currency, balance_before, balance_after, 
-         reference, from_provider, to_provider, from_wallet_id, to_wallet_id, 
-         from_linked_wallet_id, to_linked_wallet_id, status, note)
-       VALUES ($1, $2, 'transfer_out', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'pending', $14)`,
-      [
-        fromWallet.id, userId, totalDeducted, fromWallet.currency || 'SLE',
-        fromWallet.balance, fromWallet.balance - totalDeducted,
-        reference, fromProvider, resolvedToProvider, fromWallet.id, toWallet?.id || null,
-        fromLinkedWallet?.id || null, toLinkedWallet?.id || null,
-        note || null
-      ]
-    );
+    if (hasWalletTransactions) {
+      await client.query(
+        `INSERT INTO wallet_transactions
+          (wallet_id, user_id, type, amount, currency, balance_before, balance_after, 
+           reference, from_provider, to_provider, from_wallet_id, to_wallet_id, 
+           from_linked_wallet_id, to_linked_wallet_id, status, note)
+         VALUES ($1, $2, 'transfer_out', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'pending', $14)`,
+        [
+          fromWallet.id, userId, totalDeducted, fromWallet.currency || 'SLE',
+          fromWallet.balance, fromWallet.balance - totalDeducted,
+          reference, fromProvider, resolvedToProvider, fromWallet.id, toWallet?.id || null,
+          fromLinkedWallet?.id || null, toLinkedWallet?.id || null,
+          note || null
+        ]
+      );
+    }
 
-    if (fee > 0) {
+    if (hasWalletTransactions && fee > 0) {
       await client.query(
         `INSERT INTO wallet_transactions
           (wallet_id, user_id, type, amount, currency, balance_before, balance_after,
@@ -424,19 +427,21 @@ exports.transferBetweenWallets = async (req, res) => {
       const balanceBefore = toWallet.balance;
       const balanceAfter = balanceBefore + transferAmount;
       await client.query('UPDATE wallets SET balance = balance + $1 WHERE id = $2', [transferAmount, toWallet.id]);
-      await client.query(
-        `INSERT INTO wallet_transactions
-          (wallet_id, user_id, type, amount, currency, balance_before, balance_after,
-           reference, from_provider, to_provider, from_wallet_id, to_wallet_id,
-           from_linked_wallet_id, to_linked_wallet_id, status, note)
-         VALUES ($1, $2, 'transfer_in', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'completed', $14)`,
-        [
-          toWallet.id, userId, transferAmount, toWallet.currency || 'SLE',
-          balanceBefore, balanceAfter, reference, fromProvider, resolvedToProvider,
-          fromWallet.id, toWallet.id, fromLinkedWallet?.id || null, toLinkedWallet?.id || null,
-          note || null
-        ]
-      );
+      if (hasWalletTransactions) {
+        await client.query(
+          `INSERT INTO wallet_transactions
+            (wallet_id, user_id, type, amount, currency, balance_before, balance_after,
+             reference, from_provider, to_provider, from_wallet_id, to_wallet_id,
+             from_linked_wallet_id, to_linked_wallet_id, status, note)
+           VALUES ($1, $2, 'transfer_in', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'completed', $14)`,
+          [
+            toWallet.id, userId, transferAmount, toWallet.currency || 'SLE',
+            balanceBefore, balanceAfter, reference, fromProvider, resolvedToProvider,
+            fromWallet.id, toWallet.id, fromLinkedWallet?.id || null, toLinkedWallet?.id || null,
+            note || null
+          ]
+        );
+      }
       creditedInternally = true;
     } else if (toLinkedWallet) {
       const creditedWallet = await client.query('SELECT id, balance FROM wallets WHERE user_id = $1 ORDER BY id DESC LIMIT 1', [userId]);
@@ -448,10 +453,12 @@ exports.transferBetweenWallets = async (req, res) => {
     }
 
     await client.query("UPDATE transactions SET status = 'completed', completed_at = NOW() WHERE reference = $1", [reference]);
-    await client.query(
-      "UPDATE wallet_transactions SET status = 'completed', completed_at = NOW() WHERE reference = $1",
-      [reference]
-    );
+    if (hasWalletTransactions) {
+      await client.query(
+        "UPDATE wallet_transactions SET status = 'completed', completed_at = NOW() WHERE reference = $1",
+        [reference]
+      );
+    }
 
     const newBalanceRow = await client.query('SELECT balance FROM wallets WHERE user_id = $1 ORDER BY id DESC LIMIT 1', [userId]);
     const newBalance = newBalanceRow.rows[0] ? newBalanceRow.rows[0].balance : null;
