@@ -29,8 +29,6 @@ export default function Dashboard() {
   const [settingPin, setSettingPin] = useState(false);
   const [pinSetMsg, setPinSetMsg] = useState('');
 
-  const [recipient, setRecipient] = useState('');
-
   useEffect(() => {
     // Load all data on mount — each independently so one failure doesn't block others
     const loadData = async () => {
