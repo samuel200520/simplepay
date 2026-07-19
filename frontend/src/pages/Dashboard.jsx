@@ -24,8 +24,6 @@ export default function Dashboard() {
 
   // PIN management
   const [pin, setPin] = useState('');
-  const [pinError, setPinError] = useState('');
-  const [showSetPin, setShowSetPin] = useState(false);
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [settingPin, setSettingPin] = useState(false);
@@ -159,31 +157,10 @@ export default function Dashboard() {
     }
   };
 
-  const handlePinVerify = async () => {
-    if (pin.length !== 4) { setPinError('Enter your 4-digit PIN'); return; }
-    setPinError('');
-    try {
-      const verifyRes = await client.post('/user/verify-pin', { pin });
-      return verifyRes.data.success;
-    } catch (err) {
-      if (err.response?.data?.error === 'NO_PIN') {
-        setShowSetPin(true);
-        setPinError('You need to set a transaction PIN first');
-      } else {
-        setPinError('Incorrect PIN. Try again.');
-      }
-      return false;
-    }
-  };
-
   const handleSend = async (payload) => {
     setError('');
     setSending(true);
     try {
-      // Verify PIN first
-      const pinOk = await handlePinVerify();
-      if (!pinOk) { setSending(false); return; }
-
       const res = await client.post('/wallets/transfers', payload);
       setLastTxn(res.data);
       await fetchProfile();
@@ -202,8 +179,7 @@ export default function Dashboard() {
     setLastTxn(null);
     setError('');
     setPin('');
-    setPinError('');
-    setShowSetPin(false);
+    setRecipient('');
   };
 
   return (
