@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import client from '../api/client';
 
 export default function Dashboard() {
-  const { user, wallet, logout, fetchProfile } = useAuth();
+  const { user, logout, fetchProfile } = useAuth();
   const [tab, setTab] = useState('send');
   const [providers, setProviders] = useState([]);
   const [transactions, setTransactions] = useState([]);
@@ -261,9 +261,11 @@ export default function Dashboard() {
 
               {step === 1 && (
                 <>
-                  <div style={s.sectionTitle}>From (your wallet)</div>
+                  <div style={s.sectionTitle}>From</div>
                   <div style={s.providerGrid}>
-                    {walletCards.filter(w => w.provider === 'SimplePay').map(w => {
+                    {walletCards.map(w => {
+                      const provider = providers.find(p => p.id === w.provider);
+                      const isSimplePay = w.provider === 'SimplePay';
                       return (
                         <div 
                           key={w.id} 
@@ -274,15 +276,15 @@ export default function Dashboard() {
                           onClick={() => setSelectedFrom({ 
                             id: w.id, 
                             name: w.walletName || w.provider,
-                            short: 'SP',
-                            color: '#1a6b3c',
-                            type: 'wallet',
+                            short: isSimplePay ? 'SP' : provider?.short || '??',
+                            color: isSimplePay ? '#1a6b3c' : provider?.color || '#888',
+                            type: isSimplePay ? 'wallet' : 'linked',
                             balance: w.balance
                           })}
                         >
-                          <div style={{ ...s.providerIcon, background: '#1a6b3c' }}>SP</div>
+                          <div style={{ ...s.providerIcon, background: isSimplePay ? '#1a6b3c' : provider?.color }}>{isSimplePay ? 'SP' : provider?.short}</div>
                           <div style={s.providerName}>{w.walletName || w.provider}</div>
-                          <div style={s.providerType}>Wallet</div>
+                          <div style={s.providerType}>{isSimplePay ? 'Wallet' : 'Linked · NLe ' + Number(w.balance).toLocaleString()}</div>
                         </div>
                       );
                     })}
@@ -310,7 +312,7 @@ export default function Dashboard() {
                         >
                           <div style={{ ...s.providerIcon, background: provider?.color || '#888' }}>{provider?.short || '??'}</div>
                           <div style={s.providerName}>{w.walletName || w.provider}</div>
-                          <div style={s.providerType}>Linked · NLe {Number(w.balance).toLocaleString()}</div>
+                          <div style={s.providerType}>Linked</div>
                         </div>
                       );
                     })}
