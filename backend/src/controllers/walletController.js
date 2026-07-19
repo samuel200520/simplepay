@@ -571,7 +571,7 @@ exports.transferBetweenWallets = async (req, res) => {
         try {
           await db.query(
             `INSERT INTO wallet_balances (linked_wallet_id, balance, currency, last_sync)
-             VALUES ($1, -$2, 'SLE', NOW())
+             VALUES ($1, 0 - $2, 'SLE', NOW())
              ON CONFLICT (linked_wallet_id) DO UPDATE SET balance = wallet_balances.balance + EXCLUDED.balance, last_sync = EXCLUDED.last_sync`,
             [fromLinkedWallet.id, transferAmount]
           );
