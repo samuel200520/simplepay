@@ -265,15 +265,15 @@ export default function Dashboard() {
                     </optgroup>
                   </select>
 
-                  {/* Recipient input — only show when a provider is selected */}
-                  {selectedToId && !selectedToId.startsWith('linked-') && !selectedToId.startsWith('simplepay-') && (
+                  {/* Recipient input — show whenever TO is selected */}
+                  {selectedToId && (
                     <>
                       <div style={{ ...s.sectionTitle, marginTop: '16px' }}>
-                        {selectedToId === 'simplepay' ? 'Recipient SimplePay Account Number' : `Recipient ${providers.find(p => p.id === selectedToId)?.name || ''} Number`}
+                        {selectedToId === 'simplepay' ? 'Recipient SimplePay Account Number' : selectedToId.startsWith('linked-') ? 'Confirm destination' : `Recipient ${providers.find(p => p.id === selectedToId)?.name || 'account'} Number`}
                       </div>
                       <input
                         style={s.input}
-                        placeholder={selectedToId === 'simplepay' ? 'SP-12345678' : '077 123 456'}
+                        placeholder={selectedToId === 'simplepay' ? 'SP-12345678' : selectedToId.startsWith('linked-') ? 'Account number / phone' : '077 123 456'}
                         value={recipient}
                         onChange={e => setRecipient(e.target.value)}
                       />
