@@ -26,10 +26,12 @@ export default function Dashboard() {
   const [confirmPin, setConfirmPin] = useState('');
   const [settingPin, setSettingPin] = useState(false);
   const [pinSetMsg, setPinSetMsg] = useState('');
+  const [walletCards, setWalletCards] = useState([]);
 
   useEffect(() => {
     client.get('/user/providers').then(r => setProviders(r.data.providers));
     client.get('/accounts').then(r => setLinkedAccounts(r.data.accounts));
+    client.get('/wallets').then(r => setWalletCards(r.data.wallets)).catch(() => {});
     client.get('/transfer/history').then(r => {
       const txns = r.data.transactions;
       setTransactions(txns);
@@ -54,6 +56,7 @@ export default function Dashboard() {
   const fetchAccounts = async () => {
     const res = await client.get('/accounts');
     setLinkedAccounts(res.data.accounts);
+    client.get('/wallets').then(r => setWalletCards(r.data.wallets)).catch(() => {});
   };
 
   const handleLinkAccount = async () => {
@@ -146,6 +149,7 @@ export default function Dashboard() {
       });
       setLastTxn(res.data);
       await fetchProfile();
+      client.get('/wallets').then(r => setWalletCards(r.data.wallets)).catch(() => {});
       const history = await client.get('/transfer/history');
       setTransactions(history.data.transactions);
       setPin('');
@@ -229,50 +233,60 @@ export default function Dashboard() {
                 <>
                   <div style={s.sectionTitle}>From</div>
                   <div style={s.providerGrid}>
-                    {providers.map(p => (
-                      <div 
-                        key={p.id} 
-                        style={{ 
-                          ...s.providerCard, 
-                          ...(selectedFrom?.id === p.id ? s.providerSelected : {})
-                        }} 
-                        onClick={() => setSelectedFrom({ 
-                          id: p.id, 
-                          name: p.name,
-                          short: p.short,
-                          color: p.color,
-                          type: p.type
-                        })}
-                      >
-                        <div style={{ ...s.providerIcon, background: p.color }}>{p.short}</div>
-                        <div style={s.providerName}>{p.name}</div>
-                        <div style={s.providerType}>{p.type.replace('_', ' ')}</div>
-                      </div>
-                    ))}
+                    {walletCards.map(w => {
+                      const provider = providers.find(p => p.id === w.provider);
+                      const isSimplePay = w.provider === 'SimplePay';
+                      return (
+                        <div 
+                          key={w.id} 
+                          style={{ 
+                            ...s.providerCard, 
+                            ...(selectedFrom?.id === w.id ? s.providerSelected : {})
+                          }} 
+                          onClick={() => setSelectedFrom({ 
+                            id: w.id, 
+                            name: w.walletName || w.provider,
+                            short: isSimplePay ? 'SP' : provider?.short || '??',
+                            color: isSimplePay ? '#1a6b3c' : provider?.color || '#888',
+                            type: isSimplePay ? 'wallet' : 'linked',
+                            balance: w.balance
+                          })}
+                        >
+                          <div style={{ ...s.providerIcon, background: isSimplePay ? '#1a6b3c' : provider?.color }}>{isSimplePay ? 'SP' : provider?.short}</div>
+                          <div style={s.providerName}>{w.walletName || w.provider}</div>
+                          <div style={s.providerType}>{isSimplePay ? 'Wallet' : 'Linked'}</div>
+                        </div>
+                      );
+                    })}
                   </div>
                   <div style={s.divider}>↓ to</div>
                   <div style={s.sectionTitle}>To</div>
                   <div style={s.providerGrid}>
-                    {providers.map(p => (
-                      <div 
-                        key={p.id} 
-                        style={{ 
-                          ...s.providerCard, 
-                          ...(selectedTo?.id === p.id ? s.providerSelected : {})
-                        }} 
-                        onClick={() => setSelectedTo({ 
-                          id: p.id, 
-                          name: p.name,
-                          short: p.short,
-                          color: p.color,
-                          type: p.type
-                        })}
-                      >
-                        <div style={{ ...s.providerIcon, background: p.color }}>{p.short}</div>
-                        <div style={s.providerName}>{p.name}</div>
-                        <div style={s.providerType}>{p.type.replace('_', ' ')}</div>
-                      </div>
-                    ))}
+                    {walletCards.map(w => {
+                      const provider = providers.find(p => p.id === w.provider);
+                      const isSimplePay = w.provider === 'SimplePay';
+                      return (
+                        <div 
+                          key={w.id} 
+                          style={{ 
+                            ...s.providerCard, 
+                            ...(selectedTo?.id === w.id ? s.providerSelected : {})
+                          }} 
+                          onClick={() => setSelectedTo({ 
+                            id: w.id, 
+                            name: w.walletName || w.provider,
+                            short: isSimplePay ? 'SP' : provider?.short || '??',
+                            color: isSimplePay ? '#1a6b3c' : provider?.color || '#888',
+                            type: isSimplePay ? 'wallet' : 'linked',
+                            balance: w.balance
+                          })}
+                        >
+                          <div style={{ ...s.providerIcon, background: isSimplePay ? '#1a6b3c' : provider?.color }}>{isSimplePay ? 'SP' : provider?.short}</div>
+                          <div style={s.providerName}>{w.walletName || w.provider}</div>
+                          <div style={s.providerType}>{isSimplePay ? 'Wallet' : 'Linked'}</div>
+                        </div>
+                      );
+                    })}
                   </div>
                   <button style={{ ...s.btn, opacity: selectedFrom && selectedTo ? 1 : 0.5 }} disabled={!selectedFrom || !selectedTo || selectedFrom.id === selectedTo.id} onClick={() => setStep(2)}>
                     Continue →
