@@ -307,7 +307,7 @@ exports.transferBetweenWallets = async (req, res) => {
             [linkedWalletId]
           );
           const linkedBalance = Number(balResult.rows[0]?.balance || 0);
-          if (linkedBalance < totalDeducted) {
+          if (linkedBalance < transferAmount) {
             await client.query('ROLLBACK');
             return res.status(400).json({ error: `Insufficient ${fromProvider} balance (NLe ${linkedBalance.toLocaleString()})` });
           }
@@ -337,11 +337,6 @@ exports.transferBetweenWallets = async (req, res) => {
           console.error('wallet_balances check failed:', err.message);
         }
       }
-    }
-
-    if (fromWallet.balance < fee) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Insufficient SimplePay balance for fee' });
     }
 
     let toWallet = null;
