@@ -380,7 +380,7 @@ exports.transferBetweenWallets = async (req, res) => {
         toWallet = recipientWallet.rows[0];
         resolvedToAccountNumber = toRecipient;
       } else {
-        const recipientLinked = await client.query(
+        let recipientLinked = await client.query(
           `SELECT lw.id as linked_wallet_id, lw.provider_id, lw.account_number, lw.user_id, w.id as wallet_id, w.balance as wallet_balance
            FROM linked_wallets lw
            JOIN wallets w ON w.user_id = lw.user_id
@@ -388,10 +388,20 @@ exports.transferBetweenWallets = async (req, res) => {
            LIMIT 1`,
           [toProvider, toRecipient]
         );
+        if (recipientLinked.rows.length === 0) {
+          recipientLinked = await client.query(
+            `SELECT la.id as linked_account_id, la.provider_id, la.account_number, la.user_id, w.id as wallet_id, w.balance as wallet_balance
+             FROM linked_accounts la
+             JOIN wallets w ON w.user_id = la.user_id
+             WHERE la.provider_id = $1 AND la.account_number = $2 AND la.is_active = true
+             LIMIT 1`,
+            [toProvider, toRecipient]
+          );
+        }
         if (recipientLinked.rows.length > 0) {
           const r = recipientLinked.rows[0];
           toUserId = r.user_id;
-          toLinkedWallet = { id: r.linked_wallet_id, provider_id: r.provider_id, account_number: r.account_number };
+          toLinkedWallet = { id: r.linked_wallet_id || r.linked_account_id, provider_id: r.provider_id, account_number: r.account_number };
           resolvedToProvider = r.provider_id;
           resolvedToAccountNumber = r.account_number;
           toWallet = { id: r.wallet_id, balance: r.wallet_balance };

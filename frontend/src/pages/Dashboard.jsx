@@ -67,6 +67,14 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    const timer = setInterval(() => {
+      refreshWallets();
+      refreshAccounts();
+    }, 5000);
+    return () => clearInterval(timer);
+  }, []);
+
   const checkForNewActivity = (txns) => {
     const lastSeen = localStorage.getItem('simplepay_last_seen_txn');
     if (!txns.length) return;
