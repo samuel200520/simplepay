@@ -14,6 +14,7 @@ export default function Dashboard() {
   const [walletCards, setWalletCards] = useState([]);
   const [lastTxn, setLastTxn] = useState(null);
   const [sending, setSending] = useState(false);
+  const [verifyingPin, setVerifyingPin] = useState(false);
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
   const [notification, setNotification] = useState(null);
@@ -253,7 +254,9 @@ export default function Dashboard() {
   };
 
   const verifyPin = async (pinCode) => {
+    if (verifyingPin || sending) return;
     setError('');
+    setVerifyingPin(true);
     try {
       const res = await client.post('/user/verify-pin', { pin: pinCode });
       if (res.data.success) {
@@ -264,6 +267,8 @@ export default function Dashboard() {
     } catch (err) {
       setError(err.response?.data?.message || 'Incorrect PIN. Please try again.');
       throw err;
+    } finally {
+      setVerifyingPin(false);
     }
   };
 
@@ -331,7 +336,7 @@ export default function Dashboard() {
         <TransactionPin
           onConfirm={(pinCode) => verifyPin(pinCode)}
           onCancel={() => setTransferStep('summary')}
-          loading={sending}
+          loading={verifyingPin || sending}
         />
       );
     }

@@ -137,14 +137,15 @@ exports.getHistory = async (req, res) => {
     const result = await db.query(
       `SELECT *,
         CASE 
-          WHEN sender_user_id = $1 THEN 'sent'
+          WHEN fee > 0 THEN 'sent'
+          WHEN receiver_identifier LIKE $1 THEN 'sent'
           ELSE 'received'
         END as direction
        FROM transactions 
-       WHERE sender_user_id = $1 
-          OR (receiver_identifier = $2 AND sender_user_id != $1)
+       WHERE sender_user_id = $2 
+          OR (receiver_identifier = $3 AND sender_user_id != $2)
        ORDER BY created_at DESC LIMIT 50`,
-      [userId, simplepayNumber]
+      ['SP-%', userId, simplepayNumber]
     );
     res.json({ transactions: result.rows });
   } catch (err) {
