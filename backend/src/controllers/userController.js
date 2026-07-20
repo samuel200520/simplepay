@@ -56,17 +56,30 @@ exports.getNetworkStats = async (req, res) => {
 
 exports.setPin = async (req, res) => {
   const userId = req.user.userId;
-  const { pin } = req.body;
+  const { pin, currentPin } = req.body;
 
   if (!pin || pin.length !== 4 || !/^\d{4}$/.test(pin)) {
     return res.status(400).json({ error: 'PIN must be exactly 4 digits' });
   }
 
   try {
+    const result = await db.query('SELECT transaction_pin, has_custom_pin FROM users WHERE id = $1', [userId]);
+    const user = result.rows[0];
+
+    if (user && user.has_custom_pin && user.transaction_pin) {
+      if (!currentPin) {
+        return res.status(400).json({ error: 'Current PIN is required to change PIN' });
+      }
+      const valid = await bcrypt.compare(currentPin, user.transaction_pin);
+      if (!valid) {
+        return res.status(401).json({ error: 'WRONG_CURRENT_PIN', message: 'Current PIN is incorrect' });
+      }
+    }
+
     const salt = await bcrypt.genSalt(10);
     const pinHash = await bcrypt.hash(pin, salt);
     await db.query('UPDATE users SET transaction_pin = $1, has_custom_pin = true WHERE id = $2', [pinHash, userId]);
-    res.json({ success: true, message: 'Transaction PIN set successfully' });
+    res.json({ success: true, message: 'Transaction PIN updated successfully' });
   } catch (err) {
     console.error('Set PIN error:', err);
     res.status(500).json({ error: 'Could not set PIN' });

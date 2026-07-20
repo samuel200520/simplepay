@@ -40,6 +40,8 @@ export default function Dashboard() {
   const [confirmPin, setConfirmPin] = useState('');
   const [settingPin, setSettingPin] = useState(false);
   const [pinSetMsg, setPinSetMsg] = useState('');
+  const [currentPin, setCurrentPin] = useState('');
+  const [pinMode, setPinMode] = useState('set'); // 'set' | 'change'
 
   useEffect(() => {
     // Load all data on mount — each independently so one failure doesn't block others
@@ -86,6 +88,14 @@ export default function Dashboard() {
     }, 5000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (user?.has_custom_pin) {
+      setPinMode('change');
+    } else {
+      setPinMode('set');
+    }
+  }, [user?.has_custom_pin]);
 
   const checkForNewActivity = (txns) => {
     const lastSeen = localStorage.getItem('simplepay_last_seen_txn');
@@ -150,6 +160,10 @@ export default function Dashboard() {
   };
 
   const handleSetPin = async () => {
+    if (pinMode === 'change' && currentPin.length !== 4) {
+      setPinSetMsg('Please enter your current PIN');
+      return;
+    }
     if (newPin.length !== 4 || !/^\d{4}$/.test(newPin)) {
       setPinSetMsg('PIN must be exactly 4 digits');
       return;
@@ -161,12 +175,14 @@ export default function Dashboard() {
     setSettingPin(true);
     setPinSetMsg('');
     try {
-      await client.post('/user/set-pin', { pin: newPin });
-      setPinSetMsg('PIN set successfully!');
+      await client.post('/user/set-pin', { pin: newPin, currentPin: pinMode === 'change' ? currentPin : undefined });
+      setPinSetMsg(pinMode === 'change' ? 'PIN changed successfully!' : 'PIN set successfully!');
       setNewPin('');
       setConfirmPin('');
+      setCurrentPin('');
+      setPinMode('change');
     } catch (err) {
-      setPinSetMsg(err.response?.data?.error || 'Could not set PIN');
+      setPinSetMsg(err.response?.data?.error || err.response?.data?.message || 'Could not set PIN');
     } finally {
       setSettingPin(false);
     }
@@ -186,6 +202,13 @@ export default function Dashboard() {
     try {
       await client.post('/user/set-pin', { pin: pinPromptPin });
       setShowPinPrompt(false);
+      setPinPromptPin('');
+      setPinPromptConfirm('');
+      setPinMode('change');
+      setPinSetMsg('');
+      setNewPin('');
+      setConfirmPin('');
+      setCurrentPin('');
       setPinPromptPin('');
       setPinPromptConfirm('');
     } catch (err) {
@@ -564,13 +587,29 @@ export default function Dashboard() {
 
               <div style={{ ...s.sectionTitle, marginTop: '24px' }}>Transaction PIN</div>
               {pinSetMsg && <div style={{ ...s.errorBox, background: pinSetMsg.includes('success') ? '#e6f7ed' : '#fde8e8', color: pinSetMsg.includes('success') ? '#1a6b3c' : '#a32d2d' }}>{pinSetMsg}</div>}
-              <label style={s.label}>New PIN</label>
-              <input style={{ ...s.input, letterSpacing: '8px', fontSize: '20px', textAlign: 'center' }} type="password" maxLength={4} placeholder="••••" value={newPin} onChange={e => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))} />
-              <label style={s.label}>Confirm PIN</label>
-              <input style={{ ...s.input, letterSpacing: '8px', fontSize: '20px', textAlign: 'center' }} type="password" maxLength={4} placeholder="••••" value={confirmPin} onChange={e => setConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 4))} />
-              <button style={{ ...s.btn, opacity: newPin.length === 4 && confirmPin.length === 4 ? 1 : 0.5 }} disabled={newPin.length !== 4 || confirmPin.length !== 4 || settingPin} onClick={handleSetPin}>
-                {settingPin ? 'Setting PIN...' : 'Set Transaction PIN'}
-              </button>
+              {pinMode === 'set' ? (
+                <>
+                  <label style={s.label}>New PIN</label>
+                  <input style={{ ...s.input, letterSpacing: '8px', fontSize: '20px', textAlign: 'center' }} type="password" maxLength={4} placeholder="••••" value={newPin} onChange={e => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))} />
+                  <label style={s.label}>Confirm PIN</label>
+                  <input style={{ ...s.input, letterSpacing: '8px', fontSize: '20px', textAlign: 'center' }} type="password" maxLength={4} placeholder="••••" value={confirmPin} onChange={e => setConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 4))} />
+                  <button style={{ ...s.btn, opacity: newPin.length === 4 && confirmPin.length === 4 ? 1 : 0.5 }} disabled={newPin.length !== 4 || confirmPin.length !== 4 || settingPin} onClick={handleSetPin}>
+                    {settingPin ? 'Setting PIN...' : 'Set Transaction PIN'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <label style={s.label}>Current PIN</label>
+                  <input style={{ ...s.input, letterSpacing: '8px', fontSize: '20px', textAlign: 'center' }} type="password" maxLength={4} placeholder="••••" value={currentPin} onChange={e => setCurrentPin(e.target.value.replace(/\D/g, '').slice(0, 4))} />
+                  <label style={s.label}>New PIN</label>
+                  <input style={{ ...s.input, letterSpacing: '8px', fontSize: '20px', textAlign: 'center' }} type="password" maxLength={4} placeholder="••••" value={newPin} onChange={e => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))} />
+                  <label style={s.label}>Confirm New PIN</label>
+                  <input style={{ ...s.input, letterSpacing: '8px', fontSize: '20px', textAlign: 'center' }} type="password" maxLength={4} placeholder="••••" value={confirmPin} onChange={e => setConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 4))} />
+                  <button style={{ ...s.btn, opacity: currentPin.length === 4 && newPin.length === 4 && confirmPin.length === 4 ? 1 : 0.5 }} disabled={currentPin.length !== 4 || newPin.length !== 4 || confirmPin.length !== 4 || settingPin} onClick={handleSetPin}>
+                    {settingPin ? 'Updating PIN...' : 'Change PIN'}
+                  </button>
+                </>
+              )}
             </div>
           )}
 
