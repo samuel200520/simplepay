@@ -19,6 +19,7 @@ export default function Dashboard() {
   const [notification, setNotification] = useState(null);
   const [recipient, setRecipient] = useState('');
   const [selectedToId, setSelectedToId] = useState('');
+  const [selectedToName, setSelectedToName] = useState('');
   const [amount, setAmount] = useState('');
   const [transferStep, setTransferStep] = useState('form');
   const [transferPayload, setTransferPayload] = useState(null);
@@ -254,6 +255,7 @@ export default function Dashboard() {
     setLastTxn(null);
     setError('');
     setSelectedToId('');
+    setSelectedToName('');
     setRecipient('');
     setAmount('');
     setTransferStep('form');
@@ -282,7 +284,7 @@ export default function Dashboard() {
       const toWallet = walletCards.find(w => w.id === selectedToId);
       const toProviderObj = providers.find(p => p.id === selectedToId);
       const fromName = fromWallet?.walletName || 'SimplePay Wallet';
-      const toName = toWallet?.walletName || toProviderObj?.name || 'Provider';
+      const toName = selectedToName || toWallet?.walletName || toProviderObj?.name || 'Provider';
       const { fee: computedFee, total } = calculateTransactionFee(amount, getFromProvider(), getToProvider());
       return (
         <div style={{ textAlign: 'center', padding: '24px 0' }}>
@@ -374,7 +376,14 @@ export default function Dashboard() {
 
         {/* TO: linked wallets + providers */}
         <div style={{ ...s.sectionTitle, marginTop: '16px' }}>TO</div>
-        <select style={s.select} id="toSelect" onChange={e => { setSelectedToId(e.target.value); setRecipient(''); }}>
+        <select style={s.select} id="toSelect" onChange={e => { 
+          const val = e.target.value; 
+          setSelectedToId(val); 
+          setRecipient('');
+          const wallet = walletCards.find(w => w.id === val);
+          const provider = providers.find(p => p.id === val);
+          setSelectedToName(wallet?.walletName || provider?.name || ''); 
+        }}>
           <option value="">Select destination</option>
           <optgroup label="Your Linked Accounts">
             {walletCards.filter(w => w.provider !== 'SimplePay').map(w => (
