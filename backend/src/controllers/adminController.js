@@ -69,8 +69,7 @@ exports.getAllUsers = async (req, res) => {
       SELECT u.id, u.full_name, u.phone, u.email, u.created_at, u.kyc_status, u.is_verified,
              u.simplepay_account_number,
              w.balance, w.currency,
-             COUNT(DISTINCT la.id) as linked_accounts_count,
-             STRING_AGG(DISTINCT la.provider_id || ':' || la.account_number, '; ' ORDER BY la.created_at DESC) as linked_accounts
+             COUNT(DISTINCT la.id) as linked_accounts_count
       FROM users u
       LEFT JOIN wallets w ON w.user_id = u.id
       LEFT JOIN linked_accounts la ON la.user_id = u.id AND la.is_active = true

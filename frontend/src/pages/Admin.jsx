@@ -19,6 +19,7 @@ export default function Admin() {
   const [searchTerm, setSearchTerm] = useState('');
   const [actionMsg, setActionMsg] = useState('');
   const [userDetail, setUserDetail] = useState(null);
+  const [loadError, setLoadError] = useState('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
@@ -37,8 +38,12 @@ export default function Admin() {
     try {
       const res = await adminClient.get('/admin/overview', { headers: { Authorization: `Bearer ${token}` } });
       setOverview(res.data);
+      setLoadError('');
     } catch (err) {
       handleAuthError(err);
+      if (!err.response?.status === 401) {
+        setLoadError('Failed to load overview data');
+      }
     }
   };
 
@@ -48,8 +53,12 @@ export default function Admin() {
       setUsers(res.data.users);
       setTotalPages(Math.ceil(res.data.total / res.data.limit));
       setPage(pageNum);
+      setLoadError('');
     } catch (err) {
       handleAuthError(err);
+      if (!err.response?.status === 401) {
+        setLoadError('Failed to load users');
+      }
     }
   };
 
@@ -59,8 +68,12 @@ export default function Admin() {
       setTransactions(res.data.transactions);
       setTotalPages(Math.ceil(res.data.total / res.data.limit));
       setPage(pageNum);
+      setLoadError('');
     } catch (err) {
       handleAuthError(err);
+      if (!err.response?.status === 401) {
+        setLoadError('Failed to load transactions');
+      }
     }
   };
 
@@ -68,8 +81,12 @@ export default function Admin() {
     try {
       const res = await adminClient.get('/admin/providers', { headers: { Authorization: `Bearer ${token}` } });
       setProviders(res.data.providers);
+      setLoadError('');
     } catch (err) {
       handleAuthError(err);
+      if (!err.response?.status === 401) {
+        setLoadError('Failed to load providers');
+      }
     }
   };
 
@@ -77,8 +94,12 @@ export default function Admin() {
     try {
       const res = await adminClient.get('/admin/analytics/daily?days=30', { headers: { Authorization: `Bearer ${token}` } });
       setDailyStats(res.data.daily_stats);
+      setLoadError('');
     } catch (err) {
       handleAuthError(err);
+      if (!err.response?.status === 401) {
+        setLoadError('Failed to load analytics');
+      }
     }
   };
 
@@ -215,6 +236,7 @@ export default function Admin() {
       </div>
 
       {actionMsg && <div style={styles.actionMsg}>{actionMsg}</div>}
+      {loadError && <div style={styles.errorBox}>{loadError} <button onClick={() => { if (adminTab === 'users') fetchUsers(page); else if (adminTab === 'transactions') fetchTransactions(page); else if (adminTab === 'overview') fetchOverview(); else if (adminTab === 'providers') fetchProviders(); else if (adminTab === 'analytics') fetchDailyStats(); }} style={{ background: 'none', border: 'none', color: '#1a6b3c', cursor: 'pointer', fontSize: '13px', marginLeft: '8px' }}>Retry</button></div>}
 
       {adminTab === 'overview' && overview && (
         <div>
@@ -279,7 +301,7 @@ export default function Admin() {
                   <th style={styles.th}>Name</th>
                   <th style={styles.th}>Phone</th>
                   <th style={styles.th}>SimplePay #</th>
-                  <th style={styles.th}>Linked Accounts</th>
+                  <th style={styles.th}>Linked</th>
                   <th style={styles.th}>KYC</th>
                   <th style={styles.th}>Wallet Balance</th>
                   <th style={styles.th}>Joined</th>
@@ -296,15 +318,7 @@ export default function Admin() {
                         <span style={{ ...styles.statusBadge, background: '#e6f7ed', color: '#1a6b3c' }}>{u.simplepay_account_number}</span>
                       ) : '—'}
                     </td>
-                    <td style={styles.td}>
-                      {u.linked_accounts ? (
-                        <div style={{ fontSize: '11px', lineHeight: '1.4' }}>{u.linked_accounts.split('; ').map((acc, i) => (
-                          <div key={i} style={{ color: '#555' }}>{acc}</div>
-                        ))}</div>
-                      ) : (
-                        <span style={{ color: '#aaa' }}>None</span>
-                      )}
-                    </td>
+                    <td style={styles.td}>{u.linked_accounts_count || 0}</td>
                     <td style={styles.td}>
                       <span style={{
                         ...styles.statusBadge,
