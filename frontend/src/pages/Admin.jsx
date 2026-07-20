@@ -276,10 +276,10 @@ export default function Admin() {
                 <tr>
                   <th style={styles.th}>Name</th>
                   <th style={styles.th}>Phone</th>
-                  <th style={styles.th}>Email</th>
+                  <th style={styles.th}>SimplePay #</th>
+                  <th style={styles.th}>Linked Accounts</th>
                   <th style={styles.th}>KYC</th>
                   <th style={styles.th}>Wallet Balance</th>
-                  <th style={styles.th}>Linked</th>
                   <th style={styles.th}>Joined</th>
                   <th style={styles.th}>Action</th>
                 </tr>
@@ -289,7 +289,20 @@ export default function Admin() {
                   <tr key={u.id}>
                     <td style={styles.td}>{u.full_name}</td>
                     <td style={styles.td}>{u.phone}</td>
-                    <td style={styles.td}>{u.email || '—'}</td>
+                    <td style={styles.td}>
+                      {u.simplepay_account_number ? (
+                        <span style={{ ...styles.statusBadge, background: '#e6f7ed', color: '#1a6b3c' }}>{u.simplepay_account_number}</span>
+                      ) : '—'}
+                    </td>
+                    <td style={styles.td}>
+                      {u.linked_accounts ? (
+                        <div style={{ fontSize: '11px', lineHeight: '1.4' }}>{u.linked_accounts.split('; ').map((acc, i) => (
+                          <div key={i} style={{ color: '#555' }}>{acc}</div>
+                        ))}</div>
+                      ) : (
+                        <span style={{ color: '#aaa' }}>None</span>
+                      )}
+                    </td>
                     <td style={styles.td}>
                       <span style={{
                         ...styles.statusBadge,
@@ -300,7 +313,6 @@ export default function Admin() {
                       </span>
                     </td>
                     <td style={styles.td}>NLe {Number(u.balance || 0).toLocaleString()}</td>
-                    <td style={styles.td}>{u.linked_accounts_count || 0}</td>
                     <td style={styles.td}>{new Date(u.created_at).toLocaleDateString()}</td>
                     <td style={styles.td}>
                       <button onClick={() => fetchUserDetail(u.id)} style={styles.viewBtn}>

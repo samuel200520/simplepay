@@ -67,8 +67,10 @@ exports.getAllUsers = async (req, res) => {
     
     let query = `
       SELECT u.id, u.full_name, u.phone, u.email, u.created_at, u.kyc_status, u.is_verified,
+             u.simplepay_account_number,
              w.balance, w.currency,
-             COUNT(DISTINCT la.id) as linked_accounts_count
+             COUNT(DISTINCT la.id) as linked_accounts_count,
+             STRING_AGG(DISTINCT la.provider_id || ':' || la.account_number, '; ' ORDER BY la.created_at DESC) as linked_accounts
       FROM users u
       LEFT JOIN wallets w ON w.user_id = u.id
       LEFT JOIN linked_accounts la ON la.user_id = u.id AND la.is_active = true
@@ -78,7 +80,7 @@ exports.getAllUsers = async (req, res) => {
       params.push(`%${search}%`);
       query += ` WHERE u.full_name ILIKE $${params.length} OR u.phone ILIKE $${params.length} OR u.email ILIKE $${params.length}`;
     }
-    query += ` GROUP BY u.id, w.balance, w.currency ORDER BY u.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    query += ` GROUP BY u.id, u.simplepay_account_number, w.balance, w.currency ORDER BY u.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     params.push(parseInt(limit), offset);
     
     const result = await db.query(query, params);

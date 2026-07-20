@@ -6,7 +6,7 @@ exports.getProfile = async (req, res) => {
   const userId = req.user.userId;
   try {
     const userResult = await db.query(
-      'SELECT id, full_name, phone, email, is_verified, kyc_status, has_custom_pin, created_at FROM users WHERE id = $1',
+      'SELECT id, full_name, phone, email, is_verified, kyc_status, has_custom_pin, simplepay_account_number, created_at FROM users WHERE id = $1',
       [userId]
     );
     const walletResult = await db.query(
