@@ -38,7 +38,7 @@ export default function Admin() {
       const res = await adminClient.get('/admin/overview', { headers: { Authorization: `Bearer ${token}` } });
       setOverview(res.data);
     } catch (err) {
-      handleAuthError();
+      handleAuthError(err);
     }
   };
 
@@ -49,7 +49,7 @@ export default function Admin() {
       setTotalPages(Math.ceil(res.data.total / res.data.limit));
       setPage(pageNum);
     } catch (err) {
-      handleAuthError();
+      handleAuthError(err);
     }
   };
 
@@ -60,7 +60,7 @@ export default function Admin() {
       setTotalPages(Math.ceil(res.data.total / res.data.limit));
       setPage(pageNum);
     } catch (err) {
-      handleAuthError();
+      handleAuthError(err);
     }
   };
 
@@ -69,7 +69,7 @@ export default function Admin() {
       const res = await adminClient.get('/admin/providers', { headers: { Authorization: `Bearer ${token}` } });
       setProviders(res.data.providers);
     } catch (err) {
-      handleAuthError();
+      handleAuthError(err);
     }
   };
 
@@ -78,7 +78,7 @@ export default function Admin() {
       const res = await adminClient.get('/admin/analytics/daily?days=30', { headers: { Authorization: `Bearer ${token}` } });
       setDailyStats(res.data.daily_stats);
     } catch (err) {
-      handleAuthError();
+      handleAuthError(err);
     }
   };
 
@@ -88,13 +88,15 @@ export default function Admin() {
       setUserDetail(res.data);
       setAdminTab('user-detail');
     } catch (err) {
-      handleAuthError();
+      handleAuthError(err);
     }
   };
 
-  const handleAuthError = () => {
-    setError('Session expired. Please log in again.');
-    handleLogout();
+  const handleAuthError = (err) => {
+    if (err.response?.status === 401) {
+      setError('Session expired. Please log in again.');
+      handleLogout();
+    }
   };
 
   const handleLogin = async (e) => {
