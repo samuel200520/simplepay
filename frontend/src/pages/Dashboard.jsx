@@ -19,6 +19,7 @@ export default function Dashboard() {
   const [notification, setNotification] = useState(null);
   const [recipient, setRecipient] = useState('');
   const [selectedToId, setSelectedToId] = useState('');
+  const [selectedToName, setSelectedToName] = useState('');
   const [amount, setAmount] = useState('');
   const [transferStep, setTransferStep] = useState('form');
   const [transferPayload, setTransferPayload] = useState(null);
@@ -90,6 +91,13 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
+    if (tab === 'history') {
+      fetchHistory();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  useEffect(() => {
     if (user?.has_custom_pin) {
       setPinMode('change');
     } else {
@@ -129,6 +137,15 @@ export default function Dashboard() {
       setWalletCards(wRes.data.wallets);
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const fetchHistory = async () => {
+    try {
+      const txnRes = await client.get('/transfer/history');
+      setTransactions(txnRes.data.transactions);
+    } catch (err) {
+      console.error('load history error:', err);
     }
   };
 
@@ -254,6 +271,7 @@ export default function Dashboard() {
     setLastTxn(null);
     setError('');
     setSelectedToId('');
+    setSelectedToName('');
     setRecipient('');
     setAmount('');
     setTransferStep('form');
@@ -279,13 +297,10 @@ export default function Dashboard() {
       const fromEl = document.getElementById('fromSelect');
       const fromId = fromEl?.value || '';
       const fromWallet = walletCards.find(w => w.id === fromId);
-      const toSelectEl = document.getElementById('toSelect');
-      const toId = toSelectEl?.value || selectedToId || '';
-      const toWallet = walletCards.find(w => w.id === toId);
-      const toProviderObj = providers.find(p => p.id === toId);
+      const toWallet = walletCards.find(w => w.id === selectedToId);
+      const toProviderObj = providers.find(p => p.id === selectedToId);
       const fromName = fromWallet?.walletName || 'SimplePay Wallet';
-      const selectedOptionText = toSelectEl?.selectedOptions?.[0]?.text || '';
-      const toName = selectedOptionText.split(' — ')[0] || toWallet?.walletName || toProviderObj?.name || 'Provider';
+      const toName = selectedToName || toWallet?.walletName || toProviderObj?.name || 'Provider';
       const { fee: computedFee, total } = calculateTransactionFee(amount, getFromProvider(), getToProvider());
       return (
         <div style={{ textAlign: 'center', padding: '24px 0' }}>
@@ -335,13 +350,8 @@ export default function Dashboard() {
       const fromEl = document.getElementById('fromSelect');
       const fromId = fromEl?.value || '';
       const fromWallet = walletCards.find(w => w.id === fromId);
-      const toSelectEl = document.getElementById('toSelect');
-      const toId = toSelectEl?.value || selectedToId || '';
-      const toWallet = walletCards.find(w => w.id === toId);
-      const toProviderObj = providers.find(p => p.id === toId);
       const fromName = fromWallet?.walletName || lastTxn?.from_provider || 'Wallet';
-      const selectedOptionText = toSelectEl?.selectedOptions?.[0]?.text || '';
-      const toName = selectedOptionText.split(' — ')[0] || toWallet?.walletName || lastTxn?.to_provider || 'Provider';
+      const toName = selectedToName || lastTxn?.to_provider || 'Provider';
       return (
         <div style={{ textAlign: 'center', padding: '24px 0' }}>
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>✓</div>
@@ -389,6 +399,9 @@ export default function Dashboard() {
           const val = e.target.value; 
           setSelectedToId(val); 
           setRecipient('');
+          const selectedText = e.target.selectedOptions?.[0]?.text || '';
+          const name = selectedText.split(' — ')[0] || '';
+          if (name) setSelectedToName(name);
         }}>
           <option value="">Select destination</option>
           <optgroup label="Your Linked Accounts">

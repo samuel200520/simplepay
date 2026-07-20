@@ -131,11 +131,20 @@ exports.sendMoney = async (req, res) => {
 exports.getHistory = async (req, res) => {
   const userId = req.user.userId;
   try {
+    const userResult = await db.query('SELECT simplepay_account_number FROM users WHERE id = $1', [userId]);
+    const simplepayNumber = userResult.rows[0]?.simplepay_account_number;
+
     const result = await db.query(
       `SELECT *,
-        CASE WHEN fee = 0 THEN 'received' ELSE 'sent' END as direction
-       FROM transactions WHERE sender_user_id = $1 ORDER BY created_at DESC LIMIT 50`,
-      [userId]
+        CASE 
+          WHEN sender_user_id = $1 THEN 'sent'
+          ELSE 'received'
+        END as direction
+       FROM transactions 
+       WHERE sender_user_id = $1 
+          OR (receiver_identifier = $2 AND sender_user_id != $1)
+       ORDER BY created_at DESC LIMIT 50`,
+      [userId, simplepayNumber]
     );
     res.json({ transactions: result.rows });
   } catch (err) {

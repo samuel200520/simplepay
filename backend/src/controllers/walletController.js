@@ -200,9 +200,10 @@ exports.getWalletHistory = async (req, res) => {
 
     const legacyResult = await db.query(
       `SELECT *,
-        CASE WHEN fee = 0 THEN 'received' ELSE 'sent' END as direction
+        CASE WHEN sender_user_id = $1 THEN 'sent' ELSE 'received' END as direction
        FROM transactions
        WHERE sender_user_id = $1
+          OR (receiver_identifier = (SELECT simplepay_account_number FROM users WHERE id = $1) AND sender_user_id != $1)
        ORDER BY created_at DESC
        LIMIT 50`,
       [userId]
