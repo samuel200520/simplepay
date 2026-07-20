@@ -22,6 +22,14 @@ async function runStartupMigrations() {
       console.log('Added simplepay_account_number column to users');
     }
 
+    const hasPinColumn = await db.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'has_custom_pin'`
+    );
+    if (hasPinColumn.rows.length === 0) {
+      await db.query(`ALTER TABLE users ADD COLUMN has_custom_pin BOOLEAN DEFAULT false`);
+      console.log('Added has_custom_pin column to users');
+    }
+
     const missingAccountUsers = await db.query(`SELECT id FROM users WHERE simplepay_account_number IS NULL LIMIT 100`);
     for (const row of missingAccountUsers.rows) {
       let accountNumber = 'SP-' + Math.floor(10000000 + Math.random() * 90000000);

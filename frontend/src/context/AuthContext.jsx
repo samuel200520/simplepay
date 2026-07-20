@@ -22,8 +22,10 @@ export function AuthProvider({ children }) {
       const res = await client.get('/user/profile');
       setUser(res.data.user);
       setWallet(res.data.wallet);
-    } catch {
-      localStorage.removeItem('simplepay_token');
+    } catch (err) {
+      if (err.response?.status === 401) {
+        localStorage.removeItem('simplepay_token');
+      }
     } finally {
       setLoading(false);
     }
