@@ -292,13 +292,6 @@ exports.transferBetweenWallets = async (req, res) => {
       fromProvider = fromLinkedWallet.provider_id;
       fromAccountNumber = fromLinkedWallet.account_number;
       
-      const w = await client.query('SELECT id, balance, currency FROM wallets WHERE user_id = $1 ORDER BY id DESC LIMIT 1', [userId]);
-      if (!w.rows.length) {
-        await client.query('ROLLBACK');
-        return res.status(404).json({ error: 'SimplePay wallet not found' });
-      }
-      fromWallet = w.rows[0];
-      
       const hasWalletBalances = await db.getTableExists('wallet_balances');
       if (hasWalletBalances) {
         try {
@@ -315,6 +308,13 @@ exports.transferBetweenWallets = async (req, res) => {
           console.error('wallet_balances check failed:', err.message);
         }
       }
+      
+      const w = await client.query('SELECT id, balance, currency FROM wallets WHERE user_id = $1 ORDER BY id DESC LIMIT 1', [userId]);
+      if (!w.rows.length) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'SimplePay wallet not found' });
+      }
+      fromWallet = w.rows[0];
     } else {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Invalid fromWalletId' });
@@ -476,7 +476,9 @@ exports.transferBetweenWallets = async (req, res) => {
       );
     }
 
-    await client.query('UPDATE wallets SET balance = balance - $1 WHERE id = $2', [totalDeducted, fromWallet.id]);
+    if (!fromLinkedWallet) {
+      await client.query('UPDATE wallets SET balance = balance - $1 WHERE id = $2', [totalDeducted, fromWallet.id]);
+    }
 
     await client.query(
       `INSERT INTO transactions
@@ -546,15 +548,26 @@ exports.transferBetweenWallets = async (req, res) => {
       );
     }
 
-    const newBalanceRow = await client.query('SELECT balance FROM wallets WHERE user_id = $1 ORDER BY id DESC LIMIT 1', [userId]);
-    const newBalance = newBalanceRow.rows[0] ? newBalanceRow.rows[0].balance : null;
+    let newBalance = null;
+    if (fromLinkedWallet && hasWalletBalances) {
+      try {
+        const balResult = await client.query('SELECT balance FROM wallet_balances WHERE linked_wallet_id = $1', [fromLinkedWallet.id]);
+        newBalance = balResult.rows[0] ? Number(balResult.rows[0].balance) : null;
+      } catch (err) {
+        console.error('new balance check failed:', err.message);
+      }
+    }
+    if (newBalance === null) {
+      const newBalanceRow = await client.query('SELECT balance FROM wallets WHERE user_id = $1 ORDER BY id DESC LIMIT 1', [userId]);
+      newBalance = newBalanceRow.rows[0] ? newBalanceRow.rows[0].balance : null;
+    }
 
     await client.query('COMMIT');
 
     if (hasWalletBalances) {
       if (fromLinkedWallet) {
         try {
-          await db.query(
+          await client.query(
             `INSERT INTO wallet_balances (linked_wallet_id, balance, currency, last_sync)
              VALUES ($1, 0 - $2, 'SLE', NOW())
              ON CONFLICT (linked_wallet_id) DO UPDATE SET balance = wallet_balances.balance + EXCLUDED.balance, last_sync = EXCLUDED.last_sync`,
@@ -566,7 +579,7 @@ exports.transferBetweenWallets = async (req, res) => {
       }
       if (toLinkedWallet) {
         try {
-          await db.query(
+          await client.query(
             `INSERT INTO wallet_balances (linked_wallet_id, balance, currency, last_sync)
              VALUES ($1, $2, 'SLE', NOW())
              ON CONFLICT (linked_wallet_id) DO UPDATE SET balance = wallet_balances.balance + EXCLUDED.balance, last_sync = EXCLUDED.last_sync`,

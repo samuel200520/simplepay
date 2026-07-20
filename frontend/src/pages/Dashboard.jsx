@@ -19,7 +19,6 @@ export default function Dashboard() {
   const [notification, setNotification] = useState(null);
   const [recipient, setRecipient] = useState('');
   const [selectedToId, setSelectedToId] = useState('');
-  const [selectedToName, setSelectedToName] = useState('');
   const [amount, setAmount] = useState('');
   const [transferStep, setTransferStep] = useState('form');
   const [transferPayload, setTransferPayload] = useState(null);
@@ -255,7 +254,6 @@ export default function Dashboard() {
     setLastTxn(null);
     setError('');
     setSelectedToId('');
-    setSelectedToName('');
     setRecipient('');
     setAmount('');
     setTransferStep('form');
@@ -281,10 +279,13 @@ export default function Dashboard() {
       const fromEl = document.getElementById('fromSelect');
       const fromId = fromEl?.value || '';
       const fromWallet = walletCards.find(w => w.id === fromId);
-      const toWallet = walletCards.find(w => w.id === selectedToId);
-      const toProviderObj = providers.find(p => p.id === selectedToId);
+      const toSelectEl = document.getElementById('toSelect');
+      const toId = toSelectEl?.value || selectedToId || '';
+      const toWallet = walletCards.find(w => w.id === toId);
+      const toProviderObj = providers.find(p => p.id === toId);
       const fromName = fromWallet?.walletName || 'SimplePay Wallet';
-      const toName = selectedToName || toWallet?.walletName || toProviderObj?.name || 'Provider';
+      const selectedOptionText = toSelectEl?.selectedOptions?.[0]?.text || '';
+      const toName = selectedOptionText.split(' — ')[0] || toWallet?.walletName || toProviderObj?.name || 'Provider';
       const { fee: computedFee, total } = calculateTransactionFee(amount, getFromProvider(), getToProvider());
       return (
         <div style={{ textAlign: 'center', padding: '24px 0' }}>
@@ -331,8 +332,16 @@ export default function Dashboard() {
     }
 
     if (transferStep === 'success') {
-      const fromName = lastTxn?.from_provider || 'Wallet';
-      const toName = lastTxn?.to_provider || 'Wallet';
+      const fromEl = document.getElementById('fromSelect');
+      const fromId = fromEl?.value || '';
+      const fromWallet = walletCards.find(w => w.id === fromId);
+      const toSelectEl = document.getElementById('toSelect');
+      const toId = toSelectEl?.value || selectedToId || '';
+      const toWallet = walletCards.find(w => w.id === toId);
+      const toProviderObj = providers.find(p => p.id === toId);
+      const fromName = fromWallet?.walletName || lastTxn?.from_provider || 'Wallet';
+      const selectedOptionText = toSelectEl?.selectedOptions?.[0]?.text || '';
+      const toName = selectedOptionText.split(' — ')[0] || toWallet?.walletName || lastTxn?.to_provider || 'Provider';
       return (
         <div style={{ textAlign: 'center', padding: '24px 0' }}>
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>✓</div>
@@ -380,9 +389,6 @@ export default function Dashboard() {
           const val = e.target.value; 
           setSelectedToId(val); 
           setRecipient('');
-          const wallet = walletCards.find(w => w.id === val);
-          const provider = providers.find(p => p.id === val);
-          setSelectedToName(wallet?.walletName || provider?.name || ''); 
         }}>
           <option value="">Select destination</option>
           <optgroup label="Your Linked Accounts">
