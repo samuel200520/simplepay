@@ -93,6 +93,8 @@ CREATE TRIGGER update_linked_wallets_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at_column();
 
+ALTER TABLE users ADD COLUMN IF NOT EXISTS has_custom_pin BOOLEAN DEFAULT false;
+
 DROP TRIGGER IF EXISTS update_wallet_balances_updated_at ON wallet_balances;
 CREATE TRIGGER update_wallet_balances_updated_at
   BEFORE UPDATE ON wallet_balances

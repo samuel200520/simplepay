@@ -28,6 +28,13 @@ export default function Dashboard() {
   const [linkingAccount, setLinkingAccount] = useState(false);
   const [linkError, setLinkError] = useState('');
 
+  // PIN prompt after linking account
+  const [showPinPrompt, setShowPinPrompt] = useState(false);
+  const [pinPromptPin, setPinPromptPin] = useState('');
+  const [pinPromptConfirm, setPinPromptConfirm] = useState('');
+  const [pinPromptMsg, setPinPromptMsg] = useState('');
+  const [settingPinPrompt, setSettingPinPrompt] = useState(false);
+
   // PIN management
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
@@ -123,6 +130,11 @@ export default function Dashboard() {
       await client.post('/accounts', newAccount);
       await refreshAccounts();
       setNewAccount({ provider_id: '', account_number: '' });
+
+      const pinRes = await client.get('/user/pin-status');
+      if (!pinRes.data.has_custom_pin) {
+        setShowPinPrompt(true);
+      }
     } catch (err) {
       const msg = err.response?.data?.error || err.message || 'Could not link account';
       setLinkError(msg);
@@ -157,6 +169,29 @@ export default function Dashboard() {
       setPinSetMsg(err.response?.data?.error || 'Could not set PIN');
     } finally {
       setSettingPin(false);
+    }
+  };
+
+  const handleSetPinPrompt = async () => {
+    if (pinPromptPin.length !== 4 || !/^\d{4}$/.test(pinPromptPin)) {
+      setPinPromptMsg('PIN must be exactly 4 digits');
+      return;
+    }
+    if (pinPromptPin !== pinPromptConfirm) {
+      setPinPromptMsg('PINs do not match');
+      return;
+    }
+    setSettingPinPrompt(true);
+    setPinPromptMsg('');
+    try {
+      await client.post('/user/set-pin', { pin: pinPromptPin });
+      setShowPinPrompt(false);
+      setPinPromptPin('');
+      setPinPromptConfirm('');
+    } catch (err) {
+      setPinPromptMsg(err.response?.data?.error || 'Could not set PIN');
+    } finally {
+      setSettingPinPrompt(false);
     }
   };
 
@@ -409,6 +444,36 @@ export default function Dashboard() {
             <span style={{ fontSize: '16px', marginRight: '8px' }}>{notification.type === 'received' ? '💰' : '↩️'}</span>
             <span style={{ flex: 1, fontSize: '13px', color: '#333' }}>{notification.text}</span>
             <button onClick={() => setNotification(null)} style={s.notificationClose}>✕</button>
+          </div>
+        )}
+
+        {showPinPrompt && (
+          <div style={{ background: '#fff4e5', border: '1px solid #ffd699', borderRadius: '12px', padding: '16px', marginBottom: '12px' }}>
+            <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#b87800' }}>🔒 Set your transaction PIN</div>
+            <div style={{ fontSize: '13px', color: '#555', marginBottom: '12px' }}>For security, please set a custom 4-digit PIN. The default PIN (1234) should not be used for transfers.</div>
+            {pinPromptMsg && <div style={{ ...s.errorBox, background: pinPromptMsg.includes('success') ? '#e6f7ed' : '#fde8e8', color: pinPromptMsg.includes('success') ? '#1a6b3c' : '#a32d2d' }}>{pinPromptMsg}</div>}
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input
+                style={{ ...s.input, letterSpacing: '8px', fontSize: '20px', textAlign: 'center', maxWidth: '120px' }}
+                type="password"
+                maxLength={4}
+                placeholder="New PIN"
+                value={pinPromptPin}
+                onChange={e => setPinPromptPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              />
+              <input
+                style={{ ...s.input, letterSpacing: '8px', fontSize: '20px', textAlign: 'center', maxWidth: '120px' }}
+                type="password"
+                maxLength={4}
+                placeholder="Confirm"
+                value={pinPromptConfirm}
+                onChange={e => setPinPromptConfirm(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              />
+              <button style={{ ...s.btn, width: 'auto', padding: '10px 20px', marginTop: 0 }} disabled={pinPromptPin.length !== 4 || pinPromptConfirm.length !== 4 || settingPinPrompt} onClick={handleSetPinPrompt}>
+                {settingPinPrompt ? 'Saving...' : 'Save PIN'}
+              </button>
+              <button style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: '13px' }} onClick={() => setShowPinPrompt(false)}>Later</button>
+            </div>
           </div>
         )}
 

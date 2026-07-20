@@ -6,7 +6,7 @@ exports.getProfile = async (req, res) => {
   const userId = req.user.userId;
   try {
     const userResult = await db.query(
-      'SELECT id, full_name, phone, email, is_verified, kyc_status, created_at FROM users WHERE id = $1',
+      'SELECT id, full_name, phone, email, is_verified, kyc_status, has_custom_pin, created_at FROM users WHERE id = $1',
       [userId]
     );
     const walletResult = await db.query(
@@ -65,7 +65,7 @@ exports.setPin = async (req, res) => {
   try {
     const salt = await bcrypt.genSalt(10);
     const pinHash = await bcrypt.hash(pin, salt);
-    await db.query('UPDATE users SET transaction_pin = $1 WHERE id = $2', [pinHash, userId]);
+    await db.query('UPDATE users SET transaction_pin = $1, has_custom_pin = true WHERE id = $2', [pinHash, userId]);
     res.json({ success: true, message: 'Transaction PIN set successfully' });
   } catch (err) {
     console.error('Set PIN error:', err);
@@ -78,15 +78,18 @@ exports.verifyPin = async (req, res) => {
   const { pin } = req.body;
 
   try {
-    if (pin === '1234') {
-      return res.json({ success: true, demo: true });
-    }
-
-    const result = await db.query('SELECT transaction_pin FROM users WHERE id = $1', [userId]);
+    const result = await db.query('SELECT transaction_pin, has_custom_pin FROM users WHERE id = $1', [userId]);
     const user = result.rows[0];
 
     if (!user || !user.transaction_pin) {
+      if (pin === '1234') {
+        return res.json({ success: true, demo: true, using_default: true });
+      }
       return res.status(400).json({ error: 'NO_PIN', message: 'No transaction PIN set' });
+    }
+
+    if (!user.has_custom_pin && pin === '1234') {
+      return res.json({ success: true, demo: true, using_default: true });
     }
 
     const valid = await bcrypt.compare(pin, user.transaction_pin);
@@ -94,9 +97,21 @@ exports.verifyPin = async (req, res) => {
       return res.status(401).json({ error: 'WRONG_PIN', message: 'Incorrect PIN' });
     }
 
-    res.json({ success: true });
+    res.json({ success: true, using_default: false });
   } catch (err) {
     console.error('Verify PIN error:', err);
     res.status(500).json({ error: 'Could not verify PIN' });
+  }
+};
+
+exports.getPinStatus = async (req, res) => {
+  const userId = req.user.userId;
+  try {
+    const result = await db.query('SELECT has_custom_pin, transaction_pin IS NOT NULL as pin_set FROM users WHERE id = $1', [userId]);
+    const user = result.rows[0];
+    res.json({ has_custom_pin: !!user?.has_custom_pin, pin_set: !!user?.pin_set });
+  } catch (err) {
+    console.error('Get PIN status error:', err);
+    res.status(500).json({ error: 'Could not fetch PIN status' });
   }
 };
