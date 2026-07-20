@@ -1,17 +1,12 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import WalletCard from './WalletCard';
 
 export default function WalletCarousel({ wallets, onSelect, selectedId }) {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const containerRef = useRef(null);
 
   const scrollTo = useCallback((index) => {
     if (index < 0 || index >= wallets.length) return;
     setCurrentIndex(index);
-    if (containerRef.current) {
-      const card = containerRef.current.children[index];
-      if (card) card.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
-    }
   }, [wallets.length]);
 
   useEffect(() => {
@@ -21,13 +16,6 @@ export default function WalletCarousel({ wallets, onSelect, selectedId }) {
     }, 5000);
     return () => clearInterval(timer);
   }, [wallets.length]);
-
-  useEffect(() => {
-    if (containerRef.current) {
-      const card = containerRef.current.children[currentIndex];
-      if (card) card.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
-    }
-  }, [currentIndex]);
 
   if (!wallets || wallets.length === 0) {
     return (
@@ -40,6 +28,9 @@ export default function WalletCarousel({ wallets, onSelect, selectedId }) {
       </div>
     );
   }
+
+  const prevIndex = (currentIndex - 1 + wallets.length) % wallets.length;
+  const nextIndex = (currentIndex + 1) % wallets.length;
 
   return (
     <div style={styles.wrapper}>
@@ -65,29 +56,67 @@ export default function WalletCarousel({ wallets, onSelect, selectedId }) {
         </>
       )}
 
-      {/* Cards container */}
-      <div
-        ref={containerRef}
-        style={styles.track}
-      >
-        {wallets.map((w, i) => (
-          <div
-            key={w.id}
-            style={{
-              ...styles.cardWrapper,
-              flexShrink: 0,
-              width: '100%',
-              maxWidth: '320px',
-              scrollSnapAlign: 'center',
-            }}
-            onClick={() => {
-              scrollTo(i);
-              if (onSelect) onSelect(w);
-            }}
-          >
-            <WalletCard wallet={w} active={i === currentIndex || w.id === selectedId} />
-          </div>
-        ))}
+      {/* Stacked cards */}
+      <div style={styles.stackContainer}>
+        {wallets.map((w, i) => {
+          const isCurrent = i === currentIndex || w.id === selectedId;
+          const isPrev = i === prevIndex;
+          const isNext = i === nextIndex;
+          const isVisible = isCurrent || isPrev || isNext;
+
+          if (!isVisible && wallets.length > 3) return null;
+
+          let zIndex = 0;
+          let translateY = 0;
+          let scale = 1;
+          let opacity = 1;
+          let rotateX = 0;
+
+          if (isCurrent) {
+            zIndex = 3;
+            translateY = 0;
+            scale = 1;
+            opacity = 1;
+            rotateX = 0;
+          } else if (isPrev) {
+            zIndex = 2;
+            translateY = 70;
+            scale = 0.92;
+            opacity = 0.7;
+            rotateX = 4;
+          } else if (isNext) {
+            zIndex = 1;
+            translateY = -70;
+            scale = 0.92;
+            opacity = 0.7;
+            rotateX = -4;
+          } else {
+            zIndex = 0;
+            translateY = 140;
+            scale = 0.85;
+            opacity = 0.4;
+            rotateX = 6;
+          }
+
+          return (
+            <div
+              key={w.id}
+              style={{
+                ...styles.cardWrapper,
+                zIndex,
+                transform: `translateY(${translateY}px) scale(${scale}) rotateX(${rotateX}deg)`,
+                opacity,
+                transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
+              }}
+              onClick={() => {
+                scrollTo(i);
+                if (onSelect) onSelect(w);
+              }}
+            >
+              <WalletCard wallet={w} active={isCurrent} />
+            </div>
+          );
+        })}
       </div>
 
       {/* Dot indicators */}
@@ -114,26 +143,27 @@ const styles = {
   wrapper: {
     position: 'relative',
     padding: '12px 0',
-    overflow: 'hidden',
+    overflow: 'visible',
   },
-  track: {
+  stackContainer: {
+    position: 'relative',
+    height: '340px',
     display: 'flex',
-    overflowX: 'auto',
-    scrollSnapType: 'x mandatory',
-    WebkitOverflowScrolling: 'touch',
-    scrollbarWidth: 'none',
-    msOverflowStyle: 'none',
-    gap: '16px',
-    padding: '8px 0',
-    justifyContent: 'center',
+    flexDirection: 'column',
     alignItems: 'center',
+    justifyContent: 'center',
+    perspective: '1000px',
   },
   cardWrapper: {
-    flexShrink: 0,
-    width: '100%',
-    maxWidth: '320px',
-    scrollSnapAlign: 'center',
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    marginTop: '-95px',
+    marginLeft: '-160px',
+    width: '320px',
     cursor: 'pointer',
+    transformOrigin: 'center center',
+    willChange: 'transform, opacity',
   },
   arrow: {
     position: 'absolute',
