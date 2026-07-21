@@ -267,7 +267,6 @@ async function runStartupMigrations() {
 
 const savingsRoutes = require('./src/routes/savings');
 const insightsRoutes = require('./src/routes/insights');
-const studentRoutes = require('./src/routes/student');
 const notificationRoutes = require('./src/routes/notifications');
 const app = express();
 
@@ -283,7 +282,6 @@ app.use('/api/wallets', walletRoutes);
 app.use('/api/wallets', walletTransferRoutes);
 app.use('/api/savings', savingsRoutes);
 app.use('/api/insights', insightsRoutes);
-app.use('/api/student', studentRoutes);
 app.use('/api/notifications', notificationRoutes);
 
 app.get('/api/health', (req, res) => {

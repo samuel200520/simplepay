@@ -480,6 +480,80 @@ function generateInsights(spending, monthly, savings, goals, healthScore) {
   return insights;
 }
 
+exports.budgetRecommendations = async (req, res) => {
+  const userId = req.user.userId;
+  try {
+    const context = await buildFinancialContext(userId);
+    const ctx = {
+      wallet_balance: context.rows[0]?.wallet_balance || 0,
+      total_spent: context.rows[0]?.total_spent || 0,
+      total_received: context.rows[0]?.total_received || 0,
+      monthly_income: context.rows[0]?.monthly_income || 0,
+      total_saved: context.rows[0]?.total_saved || 0,
+      spending_breakdown: context.rows[0]?.spending_breakdown || [],
+      goals: context.rows[0]?.goals || [],
+    };
+
+    const monthlyIncome = ctx.monthly_income || ctx.total_received || 0;
+    const monthlyExpenses = ctx.total_spent || 0;
+    const totalSaved = ctx.total_saved || 0;
+    const balance = ctx.wallet_balance || 0;
+
+    const categories = {};
+    ctx.spending_breakdown.forEach(r => {
+      categories[r.category] = Number(r.total || 0);
+    });
+
+    const emergencyFund = monthlyExpenses * 3;
+    const emergencyFundProgress = totalSaved > 0 ? Math.min(100, (totalSaved / emergencyFund) * 100) : 0;
+
+    const recommendations = [];
+    Object.keys(categories).forEach(cat => {
+      const current = categories[cat];
+      const percentage = monthlyIncome > 0 ? (current / monthlyIncome) * 100 : 0;
+      let recommended = current;
+      let suggestion = '';
+
+      if (percentage > 40) {
+        recommended = current * 0.7;
+        suggestion = `Reduce by NLe ${(current - recommended).toLocaleString()} to bring this to a healthier level.`;
+      } else if (percentage > 25) {
+        recommended = current * 0.85;
+        suggestion = `Consider reducing by NLe ${(current - recommended).toLocaleString()} for better balance.`;
+      } else if (percentage < 10 && cat !== 'Investment') {
+        recommended = current * 1.2;
+        suggestion = `You're doing well here. This category is well within budget.`;
+      }
+
+      recommendations.push({
+        category: cat,
+        current: current,
+        recommended: Math.round(recommended),
+        percentage: percentage.toFixed(0),
+        suggestion,
+      });
+    });
+
+    const recommendedMonthlySavings = monthlyIncome > 0 ? monthlyIncome * 0.2 : 0;
+    const currentSavingsRate = monthlyIncome > 0 ? ((monthlyIncome - monthlyExpenses) / monthlyIncome) * 100 : 0;
+
+    res.json({
+      monthly_income: monthlyIncome,
+      monthly_expenses: monthlyExpenses,
+      current_balance: balance,
+      total_saved: totalSaved,
+      recommended_monthly_savings: Math.round(recommendedMonthlySavings),
+      current_savings_rate: currentSavingsRate.toFixed(0),
+      emergency_fund_target: Math.round(emergencyFund),
+      emergency_fund_progress: emergencyFundProgress.toFixed(0),
+      recommendations,
+    });
+  } catch (err) {
+    console.error('Budget recommendations error:', err);
+    res.status(500).json({ error: 'Could not generate budget recommendations' });
+  }
+};
+
 exports.clearChatHistory = async (req, res) => {
   const userId = req.user.userId;
   try {

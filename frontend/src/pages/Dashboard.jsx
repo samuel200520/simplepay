@@ -6,7 +6,6 @@ import client from '../api/client';
 import { calculateTransactionFee } from '../utils/feeCalculator';
 import SmartMoneyCoach from './SmartMoneyCoach';
 import SavingsGoals from './SavingsGoals';
-import StudentMode from './StudentMode';
 
 const SmartMoneyCoachWrapper = () => {
   const [data, setData] = useState(null);
@@ -26,16 +25,6 @@ const SavingsGoalsWrapper = ({ walletCards }) => {
   }, []);
   if (loading) return <div style={{ textAlign: 'center', padding: '40px', color: '#888' }}>Loading goals...</div>;
   return <SavingsGoals initialData={data} walletCards={walletCards} />;
-};
-
-const StudentModeWrapper = () => {
-  const [profile, setProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    client.get('/student/profile').then(r => { setProfile(r.data.profile); setLoading(false); }).catch(() => setLoading(false));
-  }, []);
-  if (loading) return <div style={{ textAlign: 'center', padding: '40px', color: '#888' }}>Loading student mode...</div>;
-  return <StudentMode initialProfile={profile} />;
 };
 
 export default function Dashboard() {
@@ -652,7 +641,6 @@ export default function Dashboard() {
             { key: 'send', label: 'Send' },
             { key: 'savings', label: 'Savings' },
             { key: 'coach', label: 'AI Coach' },
-            { key: 'student', label: 'Student' },
             { key: 'accounts', label: 'Accounts' },
             { key: 'history', label: 'History' },
             { key: 'network', label: 'Network' },
@@ -686,13 +674,6 @@ export default function Dashboard() {
           {tab === 'coach' && (
             <div>
               <SmartMoneyCoachWrapper />
-            </div>
-          )}
-
-          {/* === STUDENT TAB === */}
-          {tab === 'student' && (
-            <div>
-              <StudentModeWrapper />
             </div>
           )}
 
