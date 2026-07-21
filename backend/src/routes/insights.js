@@ -4,6 +4,7 @@ const auth = require('../middleware/auth');
 const insightsController = require('../controllers/insightsController');
 
 router.get('/insights', auth, insightsController.getInsights);
+router.get('/overview', auth, insightsController.getMultiWalletOverview);
 router.get('/budget', auth, insightsController.budgetRecommendations);
 router.post('/chat', auth, insightsController.chatWithCoach);
 router.get('/chat/history', auth, insightsController.getChatHistory);
