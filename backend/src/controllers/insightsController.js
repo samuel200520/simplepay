@@ -479,3 +479,25 @@ function generateInsights(spending, monthly, savings, goals, healthScore) {
 
   return insights;
 }
+
+exports.clearChatHistory = async (req, res) => {
+  const userId = req.user.userId;
+  try {
+    await clearConversation(userId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Clear chat history error:', err);
+    res.status(500).json({ error: 'Could not clear chat history' });
+  }
+};
+
+exports.getChatHistory = async (req, res) => {
+  const userId = req.user.userId;
+  try {
+    const history = await getConversationHistory(userId, 50);
+    res.json({ history });
+  } catch (err) {
+    console.error('Get chat history error:', err);
+    res.status(500).json({ error: 'Could not fetch chat history' });
+  }
+};
