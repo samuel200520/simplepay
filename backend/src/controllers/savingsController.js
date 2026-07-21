@@ -193,8 +193,33 @@ exports.withdrawFromGoal = async (req, res) => {
     if (destination_wallet_id) {
       if (String(destination_wallet_id).startsWith('simplepay-')) {
         const walletRowId = String(destination_wallet_id).split('-')[1];
-        const w = await db.query('SELECT id, balance FROM wallets WHERE id = $1 AND user_id = $2', [walletRowId, userId]);
-        destWallet = w.rows[0];
+        if (/^\d+$/.test(walletRowId)) {
+          const w = await db.query('SELECT id, balance FROM wallets WHERE id = $1 AND user_id = $2', [walletRowId, userId]);
+          destWallet = w.rows[0];
+        }
+        if (!destWallet) {
+          const fallback = await db.query('SELECT id, balance FROM wallets WHERE user_id = $1 ORDER BY id DESC LIMIT 1', [userId]);
+          destWallet = fallback.rows[0];
+        }
+      } else if (String(destination_wallet_id).startsWith('linked-')) {
+        const linkedWalletId = String(destination_wallet_id).split('-')[1];
+        const hasWalletBalances = await db.getTableExists('wallet_balances');
+        if (hasWalletBalances) {
+          const balResult = await db.query(
+            'SELECT balance FROM wallet_balances WHERE linked_wallet_id = $1',
+            [linkedWalletId]
+          );
+          const linkedBalance = Number(balResult.rows[0]?.balance || 0);
+          if (linkedBalance < amount) {
+            return res.status(400).json({ error: `Insufficient linked wallet balance (NLe ${linkedBalance.toLocaleString()})` });
+          }
+          await db.query(
+            `INSERT INTO wallet_balances (linked_wallet_id, balance, currency, last_sync)
+             VALUES ($1, $2, 'SLE', NOW())
+             ON CONFLICT (linked_wallet_id) DO UPDATE SET balance = wallet_balances.balance + EXCLUDED.balance, last_sync = EXCLUDED.last_sync`,
+            [linkedWalletId, amount]
+          );
+        }
       } else {
         return res.status(400).json({ error: 'Invalid destination wallet' });
       }

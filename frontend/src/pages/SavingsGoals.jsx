@@ -57,16 +57,18 @@ export default function SavingsGoals({ initialData, walletCards = [] }) {
   };
 
   const handleDeposit = async (goalId) => {
-    const amount = depositAmount[goalId];
+    const rawAmount = depositAmount[goalId];
     const sourceId = depositSource[goalId];
-    if (!amount || parseFloat(amount) <= 0) return;
+    if (!rawAmount || parseFloat(rawAmount) <= 0) return;
+    const amount = parseFloat(rawAmount);
     setLoading(true);
     setMsg('');
     try {
-      await client.post(`/savings/goals/${goalId}/deposit`, {
-        amount: parseFloat(amount),
-        source_wallet_id: sourceId || undefined
-      });
+      const payload = { amount };
+      if (sourceId) {
+        payload.source_wallet_id = sourceId;
+      }
+      await client.post(`/savings/goals/${goalId}/deposit`, payload);
       setDepositAmount(prev => ({ ...prev, [goalId]: '' }));
       setDepositSource(prev => ({ ...prev, [goalId]: '' }));
       setMsg('Deposit successful!');
@@ -79,15 +81,17 @@ export default function SavingsGoals({ initialData, walletCards = [] }) {
   };
 
   const handleWithdraw = async (goalId) => {
-    const amount = withdrawAmount[goalId];
-    if (!amount || parseFloat(amount) <= 0) return;
+    const rawAmount = withdrawAmount[goalId];
+    if (!rawAmount || parseFloat(rawAmount) <= 0) return;
+    const amount = parseFloat(rawAmount);
     if (!window.confirm('You are about to withdraw from your savings goal. This will reduce your progress. Continue?')) return;
     setLoading(true);
     setMsg('');
     try {
+      const mainWallet = walletCards.find(w => w.provider === 'SimplePay');
       await client.post(`/savings/goals/${goalId}/withdraw`, {
-        amount: parseFloat(amount),
-        destination_wallet_id: 'simplepay-main'
+        amount,
+        destination_wallet_id: mainWallet ? mainWallet.id : undefined
       });
       setWithdrawAmount(prev => ({ ...prev, [goalId]: '' }));
       setMsg('Withdrawal successful!');
