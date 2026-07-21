@@ -26,7 +26,6 @@ export default function SmartMoneyCoach({ initialData }) {
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(!initialData);
   const [historyLoaded, setHistoryLoaded] = useState(false);
-  const [chartPeriod, setChartPeriod] = useState('month');
 
   useEffect(() => {
     if (!initialData) {
@@ -271,7 +270,6 @@ export default function SmartMoneyCoach({ initialData }) {
                     {(() => {
                       const categories = spending.slice(0, 8);
                       let cumulativePercent = 0;
-                      const radius = 80;
                       const cx = 100;
                       const cy = 100;
                       const innerRadius = 50;
@@ -279,7 +277,6 @@ export default function SmartMoneyCoach({ initialData }) {
                       return categories.map((cat, i) => {
                         const pct = totalSpending > 0 ? Number(cat.total) / totalSpending : 0;
                         const angle = pct * 360;
-                        const largeArc = angle > 180 ? 1 : 0;
                         const startAngle = cumulativePercent * 360;
                         const endAngle = startAngle + angle;
                         cumulativePercent += pct;
