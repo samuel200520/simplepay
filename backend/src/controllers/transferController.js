@@ -16,7 +16,7 @@ function getCleanPrefix(number) {
 }
 
 exports.sendMoney = async (req, res) => {
-  const { from_provider, to_provider, recipient, amount, note } = req.body;
+  const { from_provider, to_provider, recipient, amount, note, purpose } = req.body;
   const userId = req.user.userId;
 
   if (!from_provider || !to_provider || !recipient || !amount) {
@@ -103,6 +103,16 @@ exports.sendMoney = async (req, res) => {
       );
 
       creditedInternally = true;
+    }
+
+    if (purpose) {
+      const txnResult = await db.query('SELECT id FROM transactions WHERE reference = $1', [reference]);
+      if (txnResult.rows.length > 0) {
+        await db.query(
+          'INSERT INTO transaction_purposes (user_id, transaction_id, purpose, custom_purpose) VALUES ($1, $2, $3, $4)',
+          [userId, txnResult.rows[0].id, purpose, null]
+        );
+      }
     }
 
     await db.query(

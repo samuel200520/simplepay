@@ -4,6 +4,39 @@ import WalletCarousel from '../components/WalletCarousel';
 import TransactionPin from '../components/TransactionPin';
 import client from '../api/client';
 import { calculateTransactionFee } from '../utils/feeCalculator';
+import SmartMoneyCoach from './SmartMoneyCoach';
+import SavingsGoals from './SavingsGoals';
+import StudentMode from './StudentMode';
+
+const SmartMoneyCoachWrapper = () => {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    client.get('/insights/insights').then(r => { setData(r.data); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+  if (loading) return <div style={{ textAlign: 'center', padding: '40px', color: '#888' }}>Loading insights...</div>;
+  return <SmartMoneyCoach initialData={data} />;
+};
+
+const SavingsGoalsWrapper = () => {
+  const [data, setData] = useState({ goals: [], wallets: [] });
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    client.get('/savings/goals').then(r => { setData(r.data); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+  if (loading) return <div style={{ textAlign: 'center', padding: '40px', color: '#888' }}>Loading goals...</div>;
+  return <SavingsGoals initialData={data} />;
+};
+
+const StudentModeWrapper = () => {
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    client.get('/student/profile').then(r => { setProfile(r.data.profile); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+  if (loading) return <div style={{ textAlign: 'center', padding: '40px', color: '#888' }}>Loading student mode...</div>;
+  return <StudentMode initialProfile={profile} />;
+};
 
 export default function Dashboard() {
   const { user, logout, fetchProfile } = useAuth();
@@ -22,6 +55,8 @@ export default function Dashboard() {
   const [selectedToId, setSelectedToId] = useState('');
   const [selectedToName, setSelectedToName] = useState('');
   const [amount, setAmount] = useState('');
+  const [purpose, setPurpose] = useState('');
+  const [customPurpose, setCustomPurpose] = useState('');
   const [transferStep, setTransferStep] = useState('form');
   const [transferPayload, setTransferPayload] = useState(null);
 
@@ -279,6 +314,8 @@ export default function Dashboard() {
     setSelectedToName('');
     setRecipient('');
     setAmount('');
+    setPurpose('');
+    setCustomPurpose('');
     setTransferStep('form');
     setTransferPayload(null);
   };
@@ -437,6 +474,25 @@ export default function Dashboard() {
               value={recipient}
               onChange={e => setRecipient(e.target.value)}
             />
+            <div style={{ ...s.sectionTitle, marginTop: '12px' }}>Purpose of Payment (optional)</div>
+            <select
+              style={s.input}
+              value={purpose}
+              onChange={e => setPurpose(e.target.value)}
+            >
+              <option value="">Select purpose (optional)</option>
+              {['Food', 'Transport', 'School Fees', 'Rent', 'Medical', 'Business', 'Family Support', 'Shopping', 'Gift', 'Utilities', 'Investment', 'Other'].map(p => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+            {purpose === 'Other' && (
+              <input
+                style={{ ...s.input, marginTop: '8px' }}
+                placeholder="Enter custom purpose"
+                value={customPurpose}
+                onChange={e => setCustomPurpose(e.target.value)}
+              />
+            )}
           </>
         )}
 
@@ -475,7 +531,7 @@ export default function Dashboard() {
             return;
           }
           setError('');
-          const payload = { fromWalletId: fromId, amount: parseFloat(amount) };
+          const payload = { fromWalletId: fromId, amount: parseFloat(amount), purpose: purpose === 'Other' ? customPurpose : purpose };
           if (String(toId).startsWith('linked-') || String(toId).startsWith('simplepay-')) {
             payload.toWalletId = toId;
           } else {
@@ -556,9 +612,17 @@ export default function Dashboard() {
         </div>
 
         <div style={s.tabs}>
-          {['send', 'accounts', 'history', 'network'].map(t => (
-            <div key={t} style={{ ...s.tab, ...(tab === t ? s.tabActive : {}) }} onClick={() => { setTab(t); resetSend(); }}>
-              {t.charAt(0).toUpperCase() + t.slice(1)}
+          {[
+            { key: 'send', label: 'Send' },
+            { key: 'savings', label: 'Savings' },
+            { key: 'coach', label: 'AI Coach' },
+            { key: 'student', label: 'Student' },
+            { key: 'accounts', label: 'Accounts' },
+            { key: 'history', label: 'History' },
+            { key: 'network', label: 'Network' },
+          ].map(t => (
+            <div key={t.key} style={{ ...s.tab, ...(tab === t.key ? s.tabActive : {}) }} onClick={() => { setTab(t.key); resetSend(); }}>
+              {t.label}
             </div>
           ))}
         </div>
@@ -572,6 +636,27 @@ export default function Dashboard() {
             <div>
               <div style={s.networkBadge}>● Network live — {providers.length} providers connected</div>
               {renderSendStep()}
+            </div>
+          )}
+
+          {/* === SAVINGS TAB === */}
+          {tab === 'savings' && (
+            <div>
+              <SavingsGoalsWrapper />
+            </div>
+          )}
+
+          {/* === AI COACH TAB === */}
+          {tab === 'coach' && (
+            <div>
+              <SmartMoneyCoachWrapper />
+            </div>
+          )}
+
+          {/* === STUDENT TAB === */}
+          {tab === 'student' && (
+            <div>
+              <StudentModeWrapper />
             </div>
           )}
 

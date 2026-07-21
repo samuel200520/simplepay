@@ -221,7 +221,7 @@ exports.getWalletHistory = async (req, res) => {
 
 exports.transferBetweenWallets = async (req, res) => {
   const userId = req.user.userId;
-  const { fromWalletId, toWalletId, toProvider, toRecipient, amount, note } = req.body || {};
+  const { fromWalletId, toWalletId, toProvider, toRecipient, amount, note, purpose } = req.body || {};
 
   if (!fromWalletId || amount === undefined || amount === null) {
     return res.status(400).json({ error: 'Missing required fields' });
@@ -491,6 +491,16 @@ exports.transferBetweenWallets = async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending')`,
       [reference, userId, toIsSimplepay ? resolvedToAccountNumber : (resolvedToAccountNumber || 'internal'), fromProvider, resolvedToProvider, transferAmount, fee, totalDeducted, note || null]
     );
+
+    if (purpose) {
+      const txnResult = await client.query('SELECT id FROM transactions WHERE reference = $1', [reference]);
+      if (txnResult.rows.length > 0) {
+        await client.query(
+          'INSERT INTO transaction_purposes (user_id, transaction_id, purpose) VALUES ($1, $2, $3)',
+          [userId, txnResult.rows[0].id, purpose]
+        );
+      }
+    }
 
     let providerResult = null;
     if (!toIsSimplepay && toAdapter) {

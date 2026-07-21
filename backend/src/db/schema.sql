@@ -95,6 +95,107 @@ CREATE TRIGGER update_linked_wallets_updated_at
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS has_custom_pin BOOLEAN DEFAULT false;
 
+-- Savings goals
+CREATE TABLE IF NOT EXISTS savings_goals (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name VARCHAR(255) NOT NULL,
+  target_amount DECIMAL(15, 2) NOT NULL,
+  current_amount DECIMAL(15, 2) DEFAULT 0.00,
+  target_date DATE,
+  icon VARCHAR(50),
+  is_active BOOLEAN DEFAULT true,
+  auto_save_enabled BOOLEAN DEFAULT false,
+  auto_save_amount DECIMAL(15, 2),
+  auto_save_frequency VARCHAR(20),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS savings_wallets (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  goal_id INTEGER NOT NULL REFERENCES savings_goals(id) ON DELETE CASCADE,
+  wallet_id INTEGER REFERENCES wallets(id) ON DELETE SET NULL,
+  balance DECIMAL(15, 2) DEFAULT 0.00,
+  currency VARCHAR(3) DEFAULT 'SLE',
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(user_id, goal_id)
+);
+
+CREATE TABLE IF NOT EXISTS savings_transactions (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  goal_id INTEGER NOT NULL REFERENCES savings_goals(id) ON DELETE CASCADE,
+  savings_wallet_id INTEGER REFERENCES savings_wallets(id) ON DELETE SET NULL,
+  type VARCHAR(50) NOT NULL,
+  amount DECIMAL(15, 2) NOT NULL,
+  currency VARCHAR(3) DEFAULT 'SLE',
+  balance_before DECIMAL(15, 2),
+  balance_after DECIMAL(15, 2),
+  note TEXT,
+  reference VARCHAR(100),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS transaction_purposes (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  transaction_id INTEGER REFERENCES transactions(id) ON DELETE CASCADE,
+  purpose VARCHAR(100) NOT NULL,
+  custom_purpose VARCHAR(255),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS student_profiles (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  institution_name VARCHAR(255),
+  student_id VARCHAR(100),
+  level VARCHAR(100),
+  is_verified BOOLEAN DEFAULT false,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(user_id)
+);
+
+CREATE TABLE IF NOT EXISTS student_transactions (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  category VARCHAR(50) NOT NULL,
+  amount DECIMAL(15, 2) NOT NULL,
+  currency VARCHAR(3) DEFAULT 'SLE',
+  reference VARCHAR(100),
+  metadata JSONB,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_savings_goals_user_id ON savings_goals(user_id);
+CREATE INDEX IF NOT EXISTS idx_savings_wallets_user_id ON savings_wallets(user_id);
+CREATE INDEX IF NOT EXISTS idx_savings_transactions_user_id ON savings_transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_transaction_purposes_transaction_id ON transaction_purposes(transaction_id);
+CREATE INDEX IF NOT EXISTS idx_student_profiles_user_id ON student_profiles(user_id);
+CREATE INDEX IF NOT EXISTS idx_student_transactions_user_id ON student_transactions(user_id);
+
+DROP TRIGGER IF EXISTS update_savings_goals_updated_at ON savings_goals;
+CREATE TRIGGER update_savings_goals_updated_at
+  BEFORE UPDATE ON savings_goals
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_savings_wallets_updated_at ON savings_wallets;
+CREATE TRIGGER update_savings_wallets_updated_at
+  BEFORE UPDATE ON savings_wallets
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_student_profiles_updated_at ON student_profiles;
+CREATE TRIGGER update_student_profiles_updated_at
+  BEFORE UPDATE ON student_profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
 DROP TRIGGER IF EXISTS update_wallet_balances_updated_at ON wallet_balances;
 CREATE TRIGGER update_wallet_balances_updated_at
   BEFORE UPDATE ON wallet_balances

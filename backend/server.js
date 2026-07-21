@@ -134,11 +134,113 @@ async function runStartupMigrations() {
     } else {
       await db.query(`ALTER TABLE sync_logs DROP CONSTRAINT IF EXISTS sync_logs_linked_wallet_id_fkey`);
     }
+
+    if (!existingTables.has('savings_goals')) {
+      await db.query(`CREATE TABLE savings_goals (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        target_amount DECIMAL(15, 2) NOT NULL,
+        current_amount DECIMAL(15, 2) DEFAULT 0.00,
+        target_date DATE,
+        icon VARCHAR(50),
+        is_active BOOLEAN DEFAULT true,
+        auto_save_enabled BOOLEAN DEFAULT false,
+        auto_save_amount DECIMAL(15, 2),
+        auto_save_frequency VARCHAR(20),
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_savings_goals_user_id ON savings_goals(user_id)`);
+      console.log('Created savings_goals table');
+    }
+
+    if (!existingTables.has('savings_wallets')) {
+      await db.query(`CREATE TABLE savings_wallets (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        goal_id INTEGER NOT NULL REFERENCES savings_goals(id) ON DELETE CASCADE,
+        wallet_id INTEGER REFERENCES wallets(id) ON DELETE SET NULL,
+        balance DECIMAL(15, 2) DEFAULT 0.00,
+        currency VARCHAR(3) DEFAULT 'SLE',
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(user_id, goal_id)
+      )`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_savings_wallets_user_id ON savings_wallets(user_id)`);
+      console.log('Created savings_wallets table');
+    }
+
+    if (!existingTables.has('savings_transactions')) {
+      await db.query(`CREATE TABLE savings_transactions (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        goal_id INTEGER NOT NULL REFERENCES savings_goals(id) ON DELETE CASCADE,
+        savings_wallet_id INTEGER REFERENCES savings_wallets(id) ON DELETE SET NULL,
+        type VARCHAR(50) NOT NULL,
+        amount DECIMAL(15, 2) NOT NULL,
+        currency VARCHAR(3) DEFAULT 'SLE',
+        balance_before DECIMAL(15, 2),
+        balance_after DECIMAL(15, 2),
+        note TEXT,
+        reference VARCHAR(100),
+        created_at TIMESTAMP DEFAULT NOW()
+      )`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_savings_transactions_user_id ON savings_transactions(user_id)`);
+      console.log('Created savings_transactions table');
+    }
+
+    if (!existingTables.has('transaction_purposes')) {
+      await db.query(`CREATE TABLE transaction_purposes (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        transaction_id INTEGER REFERENCES transactions(id) ON DELETE CASCADE,
+        purpose VARCHAR(100) NOT NULL,
+        custom_purpose VARCHAR(255),
+        created_at TIMESTAMP DEFAULT NOW()
+      )`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_transaction_purposes_transaction_id ON transaction_purposes(transaction_id)`);
+      console.log('Created transaction_purposes table');
+    }
+
+    if (!existingTables.has('student_profiles')) {
+      await db.query(`CREATE TABLE student_profiles (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        institution_name VARCHAR(255),
+        student_id VARCHAR(100),
+        level VARCHAR(100),
+        is_verified BOOLEAN DEFAULT false,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(user_id)
+      )`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_student_profiles_user_id ON student_profiles(user_id)`);
+      console.log('Created student_profiles table');
+    }
+
+    if (!existingTables.has('student_transactions')) {
+      await db.query(`CREATE TABLE student_transactions (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        category VARCHAR(50) NOT NULL,
+        amount DECIMAL(15, 2) NOT NULL,
+        currency VARCHAR(3) DEFAULT 'SLE',
+        reference VARCHAR(100),
+        metadata JSONB,
+        created_at TIMESTAMP DEFAULT NOW()
+      )`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_student_transactions_user_id ON student_transactions(user_id)`);
+      console.log('Created student_transactions table');
+    }
   } catch (err) {
     console.error('Startup migration error:', err);
   }
 }
 
+const savingsRoutes = require('./src/routes/savings');
+const insightsRoutes = require('./src/routes/insights');
+const studentRoutes = require('./src/routes/student');
 const app = express();
 
 app.use(cors({ origin: true, credentials: true }));
@@ -151,6 +253,9 @@ app.use('/api/accounts', accountsRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/wallets', walletRoutes);
 app.use('/api/wallets', walletTransferRoutes);
+app.use('/api/savings', savingsRoutes);
+app.use('/api/insights', insightsRoutes);
+app.use('/api/student', studentRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'SimplePay API running', timestamp: new Date().toISOString() });
