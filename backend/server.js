@@ -233,6 +233,33 @@ async function runStartupMigrations() {
       await db.query(`CREATE INDEX IF NOT EXISTS idx_student_transactions_user_id ON student_transactions(user_id)`);
       console.log('Created student_transactions table');
     }
+
+    if (!existingTables.has('notifications')) {
+      await db.query(`CREATE TABLE notifications (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        type VARCHAR(50) NOT NULL,
+        message TEXT NOT NULL,
+        data JSONB,
+        is_read BOOLEAN DEFAULT false,
+        created_at TIMESTAMP DEFAULT NOW()
+      )`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id)`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at DESC)`);
+      console.log('Created notifications table');
+    }
+
+    if (!existingTables.has('conversation_history')) {
+      await db.query(`CREATE TABLE conversation_history (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role VARCHAR(20) NOT NULL,
+        content TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      )`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_conversation_history_user_id ON conversation_history(user_id)`);
+      console.log('Created conversation_history table');
+    }
   } catch (err) {
     console.error('Startup migration error:', err);
   }
@@ -241,6 +268,7 @@ async function runStartupMigrations() {
 const savingsRoutes = require('./src/routes/savings');
 const insightsRoutes = require('./src/routes/insights');
 const studentRoutes = require('./src/routes/student');
+const notificationRoutes = require('./src/routes/notifications');
 const app = express();
 
 app.use(cors({ origin: true, credentials: true }));
@@ -256,6 +284,7 @@ app.use('/api/wallets', walletTransferRoutes);
 app.use('/api/savings', savingsRoutes);
 app.use('/api/insights', insightsRoutes);
 app.use('/api/student', studentRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'SimplePay API running', timestamp: new Date().toISOString() });

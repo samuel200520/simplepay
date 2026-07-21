@@ -120,6 +120,15 @@ exports.sendMoney = async (req, res) => {
       [reference]
     );
 
+    if (creditedInternally) {
+      try {
+        const { processAutoSave } = require('../controllers/savingsController');
+        await processAutoSave(recipientAccount.rows[0].user_id, amount);
+      } catch (autoSaveErr) {
+        console.error('Auto-save processing error:', autoSaveErr);
+      }
+    }
+
     const newBalance = wallet.balance - totalDeducted;
     res.json({
       success: true,

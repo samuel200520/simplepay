@@ -176,7 +176,18 @@ CREATE INDEX IF NOT EXISTS idx_savings_wallets_user_id ON savings_wallets(user_i
 CREATE INDEX IF NOT EXISTS idx_savings_transactions_user_id ON savings_transactions(user_id);
 CREATE INDEX IF NOT EXISTS idx_transaction_purposes_transaction_id ON transaction_purposes(transaction_id);
 CREATE INDEX IF NOT EXISTS idx_student_profiles_user_id ON student_profiles(user_id);
-CREATE INDEX IF NOT EXISTS idx_student_transactions_user_id ON student_transactions(user_id);
+CREATE TABLE IF NOT EXISTS notifications (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type VARCHAR(50) NOT NULL,
+  message TEXT NOT NULL,
+  data JSONB,
+  is_read BOOLEAN DEFAULT false,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at DESC);
 
 DROP TRIGGER IF EXISTS update_savings_goals_updated_at ON savings_goals;
 CREATE TRIGGER update_savings_goals_updated_at

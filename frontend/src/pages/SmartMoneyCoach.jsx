@@ -1,11 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import client from '../api/client';
 
-const PURPOSE_OPTIONS = [
-  'Food', 'Transport', 'School Fees', 'Rent', 'Medical',
-  'Business', 'Family Support', 'Shopping', 'Gift', 'Utilities', 'Investment', 'Other'
-];
-
 const ICONS = {
   'Food': '🍔', 'Transport': '🚗', 'School Fees': '🎓', 'Rent': '🏠', 'Medical': '💊',
   'Business': '💼', 'Family Support': '👨‍👩‍👧', 'Shopping': '🛍️', 'Gift': '🎁', 'Utilities': '💡', 'Investment': '📈', 'Other': '📝'
@@ -19,11 +14,13 @@ export default function SmartMoneyCoach({ initialData }) {
   const [chatInput, setChatInput] = useState('');
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(!initialData);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
 
   useEffect(() => {
     if (!initialData) {
       loadInsights();
     }
+    loadConversationHistory();
   }, [initialData]);
 
   const loadInsights = async () => {
@@ -37,14 +34,16 @@ export default function SmartMoneyCoach({ initialData }) {
     }
   };
 
-  const loadInsights = async () => {
+  const loadConversationHistory = async () => {
     try {
-      const res = await client.get('/insights/insights');
-      setInsights(res.data);
+      const res = await client.get('/insights/chat/history');
+      if (res.data.history && res.data.history.length > 0) {
+        setChatMessages(res.data.history);
+      }
     } catch (err) {
-      console.error('Load insights error:', err);
+      console.error('Load history error:', err);
     } finally {
-      setLoading(false);
+      setHistoryLoaded(true);
     }
   };
 
@@ -61,13 +60,25 @@ export default function SmartMoneyCoach({ initialData }) {
       const res = await client.post('/insights/chat', { message: userMessage });
       setChatMessages(prev => [...prev, { role: 'assistant', text: res.data.response }]);
     } catch (err) {
-      setChatMessages(prev => [...prev, { role: 'assistant', text: 'Sorry, I couldn\'t process your request. Please try again.' }]);
+      setChatMessages(prev => [...prev, { 
+        role: 'assistant', 
+        text: err.response?.data?.error || 'I apologize, but I couldn\'t process your request. Please try again.' 
+      }]);
     } finally {
       setSending(false);
     }
   };
 
-  if (loading) {
+  const handleClearHistory = async () => {
+    try {
+      await client.post('/insights/chat/history', { clear: true });
+      setChatMessages([{ role: 'assistant', text: 'Conversation cleared. How can I help you with your finances today?' }]);
+    } catch (err) {
+      console.error('Clear history error:', err);
+    }
+  };
+
+  if (loading || !historyLoaded) {
     return <div style={{ textAlign: 'center', padding: '40px', color: '#888' }}>Loading insights...</div>;
   }
 
@@ -165,36 +176,52 @@ export default function SmartMoneyCoach({ initialData }) {
       )}
 
       <div style={{ marginBottom: '24px' }}>
-        <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '12px' }}>AI Chat</h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+          <h3 style={{ fontSize: '16px', fontWeight: 600 }}>AI Chat</h3>
+          <button onClick={handleClearHistory} style={{
+            padding: '6px 12px', background: 'transparent', color: '#888',
+            border: '1px solid #ddd', borderRadius: '6px', fontSize: '12px', cursor: 'pointer'
+          }}>Clear Chat</button>
+        </div>
         <div style={{
           background: 'white', borderRadius: '12px', padding: '16px',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.05)', height: '300px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.05)', height: '400px',
           display: 'flex', flexDirection: 'column'
         }}>
-          <div style={{ flex: 1, overflowY: 'auto', marginBottom: '12px' }}>
+          <div style={{ flex: 1, overflowY: 'auto', marginBottom: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {chatMessages.map((msg, i) => (
               <div key={i} style={{
-                marginBottom: '8px', padding: '10px 14px', borderRadius: '12px',
+                alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                maxWidth: '85%',
+                padding: '12px 16px',
+                borderRadius: '16px',
                 background: msg.role === 'user' ? '#1a6b3c' : '#f5f5f5',
                 color: msg.role === 'user' ? 'white' : '#333',
-                alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                maxWidth: '80%', marginLeft: msg.role === 'user' ? 'auto' : '0'
+                fontSize: '14px',
+                lineHeight: '1.5',
+                borderBottomRightRadius: msg.role === 'user' ? '4px' : '16px',
+                borderBottomLeftRadius: msg.role === 'assistant' ? '4px' : '16px',
               }}>
                 {msg.text}
               </div>
             ))}
+            {sending && (
+              <div style={{ alignSelf: 'flex-start', padding: '12px 16px', borderRadius: '16px', background: '#f5f5f5', color: '#888', fontSize: '13px' }}>
+                Thinking...
+              </div>
+            )}
           </div>
           <form onSubmit={handleChat} style={{ display: 'flex', gap: '8px' }}>
             <input
-              style={{ flex: 1, padding: '10px 14px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '14px' }}
+              style={{ flex: 1, padding: '12px 16px', border: '1px solid #ddd', borderRadius: '10px', fontSize: '14px' }}
               placeholder="Ask about your finances..."
               value={chatInput}
               onChange={e => setChatInput(e.target.value)}
             />
             <button type="submit" style={{
-              padding: '10px 20px', background: '#1a6b3c', color: 'white',
-              border: 'none', borderRadius: '8px', fontSize: '14px', cursor: 'pointer'
-            }} disabled={sending}>
+              padding: '12px 24px', background: '#1a6b3c', color: 'white',
+              border: 'none', borderRadius: '10px', fontSize: '14px', fontWeight: 500, cursor: 'pointer'
+            }} disabled={sending || !chatInput.trim()}>
               {sending ? '...' : 'Send'}
             </button>
           </form>

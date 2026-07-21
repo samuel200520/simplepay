@@ -97,11 +97,27 @@ exports.depositToGoal = async (req, res) => {
     const sw = swResult.rows[0];
 
     let sourceWallet = null;
+    let isLinkedSource = false;
+
     if (source_wallet_id) {
       if (String(source_wallet_id).startsWith('simplepay-')) {
         const walletRowId = String(source_wallet_id).split('-')[1];
         const w = await db.query('SELECT id, balance FROM wallets WHERE id = $1 AND user_id = $2', [walletRowId, userId]);
         sourceWallet = w.rows[0];
+      } else if (String(source_wallet_id).startsWith('linked-')) {
+        const linkedWalletId = String(source_wallet_id).split('-')[1];
+        const hasWalletBalances = await db.getTableExists('wallet_balances');
+        if (hasWalletBalances) {
+          const balResult = await db.query(
+            'SELECT balance FROM wallet_balances WHERE linked_wallet_id = $1',
+            [linkedWalletId]
+          );
+          const linkedBalance = Number(balResult.rows[0]?.balance || 0);
+          if (linkedBalance < amount) {
+            return res.status(400).json({ error: `Insufficient linked wallet balance (NLe ${linkedBalance.toLocaleString()})` });
+          }
+          isLinkedSource = true;
+        }
       } else {
         return res.status(400).json({ error: 'Invalid source wallet' });
       }
@@ -110,7 +126,7 @@ exports.depositToGoal = async (req, res) => {
       sourceWallet = w.rows[0];
     }
 
-    if (!sourceWallet || sourceWallet.balance < amount) {
+    if (!isLinkedSource && (!sourceWallet || sourceWallet.balance < amount)) {
       return res.status(400).json({ error: 'Insufficient balance in source wallet' });
     }
 
@@ -118,7 +134,20 @@ exports.depositToGoal = async (req, res) => {
 
     await db.query('BEGIN');
 
-    await db.query('UPDATE wallets SET balance = balance - $1 WHERE id = $2', [amount, sourceWallet.id]);
+    if (isLinkedSource) {
+      const linkedWalletId = String(source_wallet_id).split('-')[1];
+      const hasWalletBalances = await db.getTableExists('wallet_balances');
+      if (hasWalletBalances) {
+        await db.query(
+          `INSERT INTO wallet_balances (linked_wallet_id, balance, currency, last_sync)
+           VALUES ($1, 0 - $2, 'SLE', NOW())
+           ON CONFLICT (linked_wallet_id) DO UPDATE SET balance = wallet_balances.balance + EXCLUDED.balance, last_sync = EXCLUDED.last_sync`,
+          [linkedWalletId, amount]
+        );
+      }
+    } else {
+      await db.query('UPDATE wallets SET balance = balance - $1 WHERE id = $2', [amount, sourceWallet.id]);
+    }
 
     const newSavingsBalance = Number(sw.balance) + Number(amount);
     await db.query('UPDATE savings_wallets SET balance = $1 WHERE id = $2', [newSavingsBalance, sw.id]);
@@ -213,5 +242,78 @@ exports.getSavingsHistory = async (req, res) => {
   } catch (err) {
     console.error('Savings history error:', err);
     res.status(500).json({ error: 'Could not fetch savings history' });
+  }
+};
+
+exports.processAutoSave = async (userId, incomingAmount) => {
+  try {
+    const goals = await db.query(
+      'SELECT * FROM savings_goals WHERE user_id = $1 AND is_active = true AND auto_save_enabled = true AND auto_save_amount IS NOT NULL',
+      [userId]
+    );
+
+    for (const goal of goals.rows) {
+      const autoSaveAmount = Number(goal.auto_save_amount);
+      if (goal.auto_save_frequency === 'percentage') {
+        const saveAmount = (incomingAmount * autoSaveAmount) / 100;
+        if (saveAmount < 1) continue;
+        
+        const swResult = await db.query('SELECT * FROM savings_wallets WHERE user_id = $1 AND goal_id = $2', [userId, goal.id]);
+        const sw = swResult.rows[0];
+        if (!sw) continue;
+
+        const reference = 'AUTO-SAV-' + Date.now().toString(36).toUpperCase();
+        await db.query('BEGIN');
+        
+        const newBalance = Number(sw.balance) + saveAmount;
+        await db.query('UPDATE savings_wallets SET balance = $1 WHERE id = $2', [newBalance, sw.id]);
+        
+        await db.query(
+          'INSERT INTO savings_transactions (user_id, goal_id, savings_wallet_id, type, amount, balance_before, balance_after, reference, note) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+          [userId, goal.id, sw.id, 'deposit', saveAmount, sw.balance, newBalance, reference, 'Auto-save']
+        );
+        
+        await db.query('COMMIT');
+      } else if (goal.auto_save_frequency === 'monthly' || goal.auto_save_frequency === 'weekly') {
+        const lastAutoSave = await db.query(
+          `SELECT created_at FROM savings_transactions 
+           WHERE user_id = $1 AND goal_id = $2 AND note = 'Auto-save' 
+           ORDER BY created_at DESC LIMIT 1`,
+          [userId, goal.id]
+        );
+        
+        let shouldSave = false;
+        if (lastAutoSave.rows.length === 0) {
+          shouldSave = true;
+        } else {
+          const lastDate = new Date(lastAutoSave.rows[0].created_at);
+          const now = new Date();
+          const daysSince = (now - lastDate) / (1000 * 60 * 60 * 24);
+          if (goal.auto_save_frequency === 'weekly' && daysSince >= 7) shouldSave = true;
+          if (goal.auto_save_frequency === 'monthly' && daysSince >= 30) shouldSave = true;
+        }
+        
+        if (shouldSave && autoSaveAmount <= incomingAmount) {
+          const swResult = await db.query('SELECT * FROM savings_wallets WHERE user_id = $1 AND goal_id = $2', [userId, goal.id]);
+          const sw = swResult.rows[0];
+          if (!sw) continue;
+
+          const reference = 'AUTO-SAV-' + Date.now().toString(36).toUpperCase();
+          await db.query('BEGIN');
+          
+          const newBalance = Number(sw.balance) + autoSaveAmount;
+          await db.query('UPDATE savings_wallets SET balance = $1 WHERE id = $2', [newBalance, sw.id]);
+          
+          await db.query(
+            'INSERT INTO savings_transactions (user_id, goal_id, savings_wallet_id, type, amount, balance_before, balance_after, reference, note) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+            [userId, goal.id, sw.id, 'deposit', autoSaveAmount, sw.balance, newBalance, reference, 'Auto-save']
+          );
+          
+          await db.query('COMMIT');
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Auto-save error:', err);
   }
 };

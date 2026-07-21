@@ -18,14 +18,14 @@ const SmartMoneyCoachWrapper = () => {
   return <SmartMoneyCoach initialData={data} />;
 };
 
-const SavingsGoalsWrapper = () => {
+const SavingsGoalsWrapper = ({ walletCards }) => {
   const [data, setData] = useState({ goals: [], wallets: [] });
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     client.get('/savings/goals').then(r => { setData(r.data); setLoading(false); }).catch(() => setLoading(false));
   }, []);
   if (loading) return <div style={{ textAlign: 'center', padding: '40px', color: '#888' }}>Loading goals...</div>;
-  return <SavingsGoals initialData={data} />;
+  return <SavingsGoals initialData={data} walletCards={walletCards} />;
 };
 
 const StudentModeWrapper = () => {
@@ -51,6 +51,8 @@ export default function Dashboard() {
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
   const [notification, setNotification] = useState(null);
+  const [appNotifications, setAppNotifications] = useState([]);
+  const [showNotifications, setShowNotifications] = useState(false);
   const [recipient, setRecipient] = useState('');
   const [selectedToId, setSelectedToId] = useState('');
   const [selectedToName, setSelectedToName] = useState('');
@@ -112,6 +114,13 @@ export default function Dashboard() {
         checkForNewActivity(txnRes.data.transactions);
       } catch (err) {
         console.error('load history error:', err);
+      }
+
+      try {
+        const notifRes = await client.get('/notifications');
+        setAppNotifications(notifRes.data.notifications || []);
+      } catch (err) {
+        console.error('load notifications error:', err);
       }
     };
     loadData();
@@ -596,13 +605,40 @@ export default function Dashboard() {
               <div style={s.headerSub}>Unified Payments · Sierra Leone</div>
             </div>
           </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: '12px', opacity: 0.7 }}>Welcome back</div>
-            <div style={{ fontSize: '14px', fontWeight: 500 }}>{user?.full_name?.split(' ')[0]} {user?.full_name?.split(' ')[1]?.[0]}.</div>
-            {user?.simplepay_account_number && (
-              <div style={{ fontSize: '11px', color: '#7edeab', marginTop: '2px' }}>Account: {user.simplepay_account_number}</div>
-            )}
-            <button onClick={logout} style={s.logoutBtn}>Sign out</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ position: 'relative' }}>
+              <button onClick={() => setShowNotifications(!showNotifications)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', padding: '4px' }}>
+                🔔
+              </button>
+              {appNotifications.filter(n => !n.is_read).length > 0 && (
+                <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: '#a32d2d', color: 'white', fontSize: '10px', fontWeight: 600, borderRadius: '50%', width: '16px', height: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {appNotifications.filter(n => !n.is_read).length}
+                </span>
+              )}
+              {showNotifications && (
+                <div style={{ position: 'absolute', right: 0, top: '36px', width: '320px', maxHeight: '400px', overflowY: 'auto', background: 'white', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.15)', zIndex: 100, border: '1px solid #eee' }}>
+                  <div style={{ padding: '12px 16px', borderBottom: '1px solid #eee', fontSize: '14px', fontWeight: 600 }}>Notifications</div>
+                  {appNotifications.length === 0 ? (
+                    <div style={{ padding: '20px', textAlign: 'center', color: '#888', fontSize: '13px' }}>No notifications yet</div>
+                  ) : (
+                    appNotifications.map(n => (
+                      <div key={n.id} style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', background: n.is_read ? 'white' : '#f5f5f5', fontSize: '13px' }}>
+                        <div style={{ fontWeight: 500, marginBottom: '4px' }}>{n.message}</div>
+                        <div style={{ fontSize: '11px', color: '#888' }}>{new Date(n.created_at).toLocaleDateString()}</div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: '12px', opacity: 0.7 }}>Welcome back</div>
+              <div style={{ fontSize: '14px', fontWeight: 500 }}>{user?.full_name?.split(' ')[0]} {user?.full_name?.split(' ')[1]?.[0]}.</div>
+              {user?.simplepay_account_number && (
+                <div style={{ fontSize: '11px', color: '#7edeab', marginTop: '2px' }}>Account: {user.simplepay_account_number}</div>
+              )}
+              <button onClick={logout} style={s.logoutBtn}>Sign out</button>
+            </div>
           </div>
         </div>
 
@@ -642,7 +678,7 @@ export default function Dashboard() {
           {/* === SAVINGS TAB === */}
           {tab === 'savings' && (
             <div>
-              <SavingsGoalsWrapper />
+              <SavingsGoalsWrapper walletCards={walletCards} />
             </div>
           )}
 
@@ -843,4 +879,5 @@ const s = {
   successIcon: { width: '60px', height: '60px', borderRadius: '50%', background: '#e6f7ed', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', fontSize: '28px', color: '#1a6b3c' },
   pinBox: { background: '#f8f8f8', borderRadius: '10px', padding: '16px', marginBottom: '12px', textAlign: 'center' },
   pinTitle: { fontSize: '16px', fontWeight: 600, color: '#1a1a1a', marginBottom: '8px' },
+  notificationBadge: { position: 'absolute', top: '-4px', right: '-4px', background: '#a32d2d', color: 'white', fontSize: '10px', fontWeight: 600, borderRadius: '50%', width: '16px', height: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' },
 };

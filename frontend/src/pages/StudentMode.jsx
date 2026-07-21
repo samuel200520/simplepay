@@ -53,25 +53,6 @@ export default function StudentMode({ initialProfile }) {
     loadTransactions();
   }, []);
 
-  const loadProfile = async () => {
-    try {
-      const res = await client.get('/student/profile');
-      setHasProfile(!!res.data.profile);
-      setProfile(res.data.profile);
-    } catch (err) {
-      console.error('Load profile error:', err);
-    }
-  };
-
-  const loadTransactions = async () => {
-    try {
-      const res = await client.get('/student/transactions');
-      setTransactions(res.data.transactions || []);
-    } catch (err) {
-      console.error('Load transactions error:', err);
-    }
-  };
-
   const handleSetup = async (e) => {
     e.preventDefault();
     setLoading(true);

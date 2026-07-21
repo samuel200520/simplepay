@@ -5,5 +5,7 @@ const insightsController = require('../controllers/insightsController');
 
 router.get('/insights', auth, insightsController.getInsights);
 router.post('/chat', auth, insightsController.chatWithCoach);
+router.get('/chat/history', auth, insightsController.getChatHistory);
+router.post('/chat/history', auth, insightsController.clearChatHistory);
 
 module.exports = router;

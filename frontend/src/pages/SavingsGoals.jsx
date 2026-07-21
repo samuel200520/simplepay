@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import client from '../api/client';
 
 const ICONS = {
@@ -6,7 +6,7 @@ const ICONS = {
   'Vacation': '✈️', 'Car': '🚗', 'Wedding': '💍', 'Home': '🏡', 'custom': '📝'
 };
 
-export default function SavingsGoals({ initialData }) {
+export default function SavingsGoals({ initialData, walletCards = [] }) {
   const [goals, setGoals] = useState(initialData?.goals || []);
   const [wallets, setWallets] = useState(initialData?.wallets || []);
   const [showCreate, setShowCreate] = useState(false);
@@ -15,6 +15,7 @@ export default function SavingsGoals({ initialData }) {
   const [date, setDate] = useState('');
   const [icon, setIcon] = useState('');
   const [depositAmount, setDepositAmount] = useState({});
+  const [depositSource, setDepositSource] = useState({});
   const [withdrawAmount, setWithdrawAmount] = useState({});
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
@@ -57,15 +58,17 @@ export default function SavingsGoals({ initialData }) {
 
   const handleDeposit = async (goalId) => {
     const amount = depositAmount[goalId];
+    const sourceId = depositSource[goalId];
     if (!amount || parseFloat(amount) <= 0) return;
     setLoading(true);
     setMsg('');
     try {
       await client.post(`/savings/goals/${goalId}/deposit`, {
         amount: parseFloat(amount),
-        source_wallet_id: 'simplepay-main'
+        source_wallet_id: sourceId || undefined
       });
       setDepositAmount(prev => ({ ...prev, [goalId]: '' }));
+      setDepositSource(prev => ({ ...prev, [goalId]: '' }));
       setMsg('Deposit successful!');
       loadGoals();
     } catch (err) {
@@ -97,11 +100,6 @@ export default function SavingsGoals({ initialData }) {
   };
 
   const getGoalWallet = (goalId) => wallets.find(w => w.goal_id === goalId);
-  const getProgress = (goal) => {
-    const wallet = getGoalWallet(goal.id);
-    const current = wallet ? Number(wallet.balance) : Number(goal.current_amount);
-    return Math.min(100, Math.round((current / Number(goal.target_amount)) * 100));
-  };
 
   return (
     <div>
@@ -162,7 +160,6 @@ export default function SavingsGoals({ initialData }) {
           {goals.map(goal => {
             const wallet = getGoalWallet(goal.id);
             const current = wallet ? Number(wallet.balance) : Number(goal.current_amount);
-            const progress = getProgress(goal);
             const remaining = Number(goal.target_amount) - current;
             const pct = Math.min(100, (current / Number(goal.target_amount)) * 100);
 
@@ -195,16 +192,30 @@ export default function SavingsGoals({ initialData }) {
                 </div>
 
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  <div style={{ flex: 1, display: 'flex', gap: '8px' }}>
-                    <input
-                      style={{ flex: 1, padding: '8px 12px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px' }}
-                      type="number" placeholder="Amount" value={depositAmount[goal.id] || ''}
-                      onChange={e => setDepositAmount(prev => ({ ...prev, [goal.id]: e.target.value }))}
-                    />
-                    <button onClick={() => handleDeposit(goal.id)} style={{
-                      padding: '8px 12px', background: '#1a6b3c', color: 'white',
-                      border: 'none', borderRadius: '6px', fontSize: '12px', cursor: 'pointer'
-                    }} disabled={loading}>Deposit</button>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <input
+                        style={{ flex: 1, padding: '8px 12px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px' }}
+                        type="number" placeholder="Amount" value={depositAmount[goal.id] || ''}
+                        onChange={e => setDepositAmount(prev => ({ ...prev, [goal.id]: e.target.value }))}
+                      />
+                      <button onClick={() => handleDeposit(goal.id)} style={{
+                        padding: '8px 12px', background: '#1a6b3c', color: 'white',
+                        border: 'none', borderRadius: '6px', fontSize: '12px', cursor: 'pointer'
+                      }} disabled={loading || !depositAmount[goal.id]}>Deposit</button>
+                    </div>
+                    {walletCards.length > 0 && (
+                      <select
+                        style={{ width: '100%', padding: '8px 12px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '13px' }}
+                        value={depositSource[goal.id] || ''}
+                        onChange={e => setDepositSource(prev => ({ ...prev, [goal.id]: e.target.value }))}
+                      >
+                        <option value="">From SimplePay Wallet</option>
+                        {walletCards.filter(w => w.provider !== 'SimplePay').map(w => (
+                          <option key={w.id} value={w.id}>{w.walletName} (NLe {Number(w.balance).toLocaleString()})</option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                   <div style={{ flex: 1, display: 'flex', gap: '8px' }}>
                     <input
