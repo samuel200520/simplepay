@@ -1,122 +1,16 @@
-let OpenAI = null;
-try {
-  OpenAI = require('openai');
-} catch (e) {
-  // OpenAI package optional — fallback engine handles all queries without it
-}
-
-const openai = OpenAI && process.env.OPENAI_API_KEY
-  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-  : null;
-
 /**
- * Chat with the AI using OpenAI, providing rich multi-wallet financial context.
- * Falls back to a sophisticated rule-based engine when no API key is configured.
+ * Smart Money Coach - Intelligent Financial Assistant
+ * Advanced rule-based engine with conversation memory
+ * Fully offline capable - no external dependencies
  */
 async function chatWithLLM(messages, financialContext) {
-  if (!openai || !process.env.OPENAI_API_KEY) {
-    // Fallback to intelligent rule-based response when no LLM key
-    return generateFallbackResponse(messages, financialContext);
-  }
-
-  const systemPrompt = buildSystemPrompt(financialContext);
-
-  try {
-    const response = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...messages,
-      ],
-      max_tokens: 600,
-      temperature: 0.7,
-    });
-
-    return response.choices[0]?.message?.content
-      || generateFallbackResponse(messages, financialContext);
-  } catch (err) {
-    console.error('LLM API error, using fallback:', err.message);
-    return generateFallbackResponse(messages, financialContext);
-  }
-}
-
-function buildSystemPrompt(ctx) {
-  const walletList = (ctx.wallets || [])
-    .map(w => `  - ${w.name} (${w.provider}): NLe ${Number(w.balance || 0).toLocaleString()}`)
-    .join('\n');
-
-  const spendingCategories = (ctx.spending_categories || [])
-    .map(c => `  - ${c.category}: NLe ${Number(c.total || 0).toLocaleString()} (${c.count} transactions)`)
-    .join('\n');
-
-  const goalsList = (ctx.goals || [])
-    .map(g => `  - ${g.name}: NLe ${Number(g.current || 0).toLocaleString()} / NLe ${Number(g.target || 0).toLocaleString()} (${g.progress}% complete)`)
-    .join('\n');
-
-  const walletActivityList = (ctx.all_wallet_activity || [])
-    .map(w => `  - ${w.name}: ${w.sentCount + w.receivedCount} transactions (sent: NLe ${Number(w.sentVolume || 0).toLocaleString()}, received: NLe ${Number(w.receivedVolume || 0).toLocaleString()})`)
-    .join('\n');
-
-  return `You are SimplePay's Smart Money Coach — an intelligent, friendly AI financial advisor for users in Sierra Leone.
-
-Your core mission:
-- Help users understand their COMPLETE financial picture across ALL connected wallets (SimplePay, banks, mobile money)
-- Provide personalized, actionable advice based on their actual financial data
-- Never respond with just numbers — ALWAYS explain what the numbers mean and provide context
-- Be supportive and encouraging, but also honest about areas needing improvement
-- Use NLe (Sierra Leonean Leone) for all currency references
-- NEVER use the word "income" — use "money received", "incoming funds", or "cash inflow" instead
-
-=== THIS USER'S MULTI-WALLET FINANCIAL CONTEXT ===
-
-💰 TOTAL AVAILABLE FUNDS: NLe ${Number(ctx.total_balance || 0).toLocaleString()}
-📊 CONNECTED WALLETS: ${ctx.wallet_count || 0}
-🏥 FINANCIAL HEALTH SCORE: ${ctx.health_score || 0}/100 (${ctx.health_label || 'N/A'})
-
-📱 WALLET BREAKDOWN:
-${walletList || '  No wallets connected'}
-
-📈 WALLET ACTIVITY:
-${walletActivityList || '  No transaction activity yet'}
-
-📤 MONEY SENT (Outgoing):
-  Total: NLe ${Number(ctx.total_sent || 0).toLocaleString()}
-  Transactions: ${ctx.sent_transaction_count || 0}
-  Average: NLe ${Number(ctx.average_sent || 0).toLocaleString()}
-
-📥 MONEY RECEIVED (Incoming):
-  Total: NLe ${Number(ctx.total_received || 0).toLocaleString()}
-  Transactions: ${ctx.received_transaction_count || 0}
-  Average: NLe ${Number(ctx.average_received || 0).toLocaleString()}
-
-📊 SPENDING CATEGORIES:
-${spendingCategories || '  No spending data yet'}
-
-🏦 SAVINGS:
-  Total Saved: NLe ${Number(ctx.total_saved || 0).toLocaleString()}
-  Goals: ${ctx.goals_count || 0} (${ctx.active_goals || 0} active, ${ctx.completed_goals || 0} completed)
-${goalsList || ''}
-
-=== END CONTEXT ===
-
-Response Guidelines:
-1. ALWAYS reference the user's actual financial data when relevant to their question
-2. For balance questions: provide total across ALL wallets, then break down by wallet name and provider
-3. For spending questions: reference actual spending categories with percentages and amounts
-4. For wallet questions: compare wallets by balance, activity, and usage patterns
-5. For savings questions: reference specific goals by name with progress percentages
-6. For affordability questions: analyze total balance, savings goals, and recent spending patterns
-7. For advice questions: provide 2-3 specific, actionable tips based on their actual financial situation
-8. Keep responses 2-5 sentences — thorough but concise
-9. Use emojis sparingly and naturally 💰📊🎯
-10. If you don't understand the question, guide them: "I can help you understand your spending, wallets, savings, and money habits. Try asking me about your balance, spending, goals, or budgeting."`;
+  return generateIntelligentResponse(messages, financialContext);
 }
 
 /**
- * Sophisticated fallback response engine when OpenAI is unavailable.
- * Understands natural language questions about multi-wallet finances.
+ * Main response generator - routes queries to specialized handlers
  */
-function generateFallbackResponse(messages, ctx) {
+function generateIntelligentResponse(messages, ctx) {
   if (!messages || messages.length === 0) {
     return buildWelcomeMessage(ctx);
   }
@@ -124,7 +18,7 @@ function generateFallbackResponse(messages, ctx) {
   const lastMsg = messages[messages.length - 1];
   const userMessage = (lastMsg.content || '').toLowerCase().trim();
 
-  // Check for conversation context (follow-up questions)
+  // Extract conversation context for follow-up handling
   const context = extractConversationContext(messages);
   
   return routeQuery(userMessage, ctx, context);
