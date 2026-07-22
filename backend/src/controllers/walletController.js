@@ -210,6 +210,7 @@ exports.getWalletHistory = async (req, res) => {
   const { walletId } = req.params;
   try {
     const hasWalletTransactions = await db.getTableExists('wallet_transactions');
+    const hasLinkedWallets = await db.getTableExists('linked_wallets');
     
     if (hasWalletTransactions) {
       let query = `
@@ -227,7 +228,18 @@ exports.getWalletHistory = async (req, res) => {
           query += ` AND wt.wallet_id = $2`;
           params.push(walletRowId);
         } else if (String(walletId).startsWith('linked-')) {
-          const linkedWalletId = String(walletId).split('-')[1];
+          let linkedWalletId = String(walletId).split('-')[1];
+          if (hasLinkedWallets) {
+            try {
+              const la = await db.query('SELECT provider_id, account_number FROM linked_accounts WHERE id = $1 AND user_id = $2', [linkedWalletId, userId]);
+              if (la.rows.length > 0) {
+                const lw = await db.query('SELECT id FROM linked_wallets WHERE user_id = $1 AND provider_id = $2 AND account_number = $3 AND is_active = true LIMIT 1', [userId, la.rows[0].provider_id, la.rows[0].account_number]);
+                if (lw.rows.length > 0) linkedWalletId = lw.rows[0].id;
+              }
+            } catch (err) {
+              console.error('linked_wallets id lookup failed:', err.message);
+            }
+          }
           query += ` AND (wt.to_linked_wallet_id = $2 OR wt.from_linked_wallet_id = $2)`;
           params.push(linkedWalletId);
         }
@@ -492,6 +504,18 @@ exports.transferBetweenWallets = async (req, res) => {
           resolvedToAccountNumber = r.account_number;
           toWallet = { id: r.wallet_id, balance: r.wallet_balance };
           toLinkedWalletBalanceId = r.linked_wallet_id || r.linked_account_id;
+
+          if (hasLinkedWallets && !r.linked_wallet_id) {
+            try {
+              const tLw = await client.query(
+                'SELECT id FROM linked_wallets WHERE user_id = $1 AND provider_id = $2 AND account_number = $3 AND is_active = true LIMIT 1',
+                [r.user_id, r.provider_id, r.account_number]
+              );
+              if (tLw.rows.length > 0) toLinkedWalletBalanceId = tLw.rows[0].id;
+            } catch (err) {
+              console.error('linked_wallets balance id lookup failed:', err.message);
+            }
+          }
         }
       }
     }
@@ -694,6 +718,7 @@ exports.getWalletTransactions = async (req, res) => {
 
   try {
     const hasWalletTransactions = await db.getTableExists('wallet_transactions');
+    const hasLinkedWallets = await db.getTableExists('linked_wallets');
     
     if (hasWalletTransactions) {
       let query = `
@@ -710,7 +735,18 @@ exports.getWalletTransactions = async (req, res) => {
           query += ` AND wt.wallet_id = $2`;
           params.push(walletRowId);
         } else if (String(walletId).startsWith('linked-')) {
-          const linkedWalletId = String(walletId).split('-')[1];
+          let linkedWalletId = String(walletId).split('-')[1];
+          if (hasLinkedWallets) {
+            try {
+              const la = await db.query('SELECT provider_id, account_number FROM linked_accounts WHERE id = $1 AND user_id = $2', [linkedWalletId, userId]);
+              if (la.rows.length > 0) {
+                const lw = await db.query('SELECT id FROM linked_wallets WHERE user_id = $1 AND provider_id = $2 AND account_number = $3 AND is_active = true LIMIT 1', [userId, la.rows[0].provider_id, la.rows[0].account_number]);
+                if (lw.rows.length > 0) linkedWalletId = lw.rows[0].id;
+              }
+            } catch (err) {
+              console.error('linked_wallets id lookup failed:', err.message);
+            }
+          }
           query += ` AND (wt.to_linked_wallet_id = $2 OR wt.from_linked_wallet_id = $2)`;
           params.push(linkedWalletId);
         }
