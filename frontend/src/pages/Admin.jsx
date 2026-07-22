@@ -10,18 +10,18 @@ export default function Admin() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [adminTab, setAdminTab] = useState('overview');
+  const [tab, setTab] = useState('overview');
   const [overview, setOverview] = useState(null);
   const [users, setUsers] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [providers, setProviders] = useState([]);
   const [dailyStats, setDailyStats] = useState([]);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [actionMsg, setActionMsg] = useState('');
-  const [userDetail, setUserDetail] = useState(null);
-  const [loadError, setLoadError] = useState('');
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+  const [walletStats, setWalletStats] = useState(null);
+  const [savingsOverview, setSavingsOverview] = useState(null);
+  const [reversalStats, setReversalStats] = useState([]);
+  const [topUsers, setTopUsers] = useState([]);
+
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     if (token) {
@@ -49,7 +49,7 @@ export default function Admin() {
 
   const fetchUsers = async (pageNum = 1) => {
     try {
-      const res = await adminClient.get(`/admin/users?search=${encodeURIComponent(searchTerm)}&page=${pageNum}&limit=20`, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await adminClient.get(`/admin/users?search=${encodeURIComponent(search)}&page=${pageNum}&limit=20`, { headers: { Authorization: `Bearer ${token}` } });
       setUsers(res.data.users);
       setTotalPages(Math.ceil(res.data.total / res.data.limit));
       setPage(pageNum);
@@ -64,7 +64,7 @@ export default function Admin() {
 
   const fetchTransactions = async (pageNum = 1) => {
     try {
-      const res = await adminClient.get(`/admin/transactions?search=${encodeURIComponent(searchTerm)}&page=${pageNum}&limit=20`, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await adminClient.get(`/admin/transactions?search=${encodeURIComponent(search)}&page=${pageNum}&limit=20`, { headers: { Authorization: `Bearer ${token}` } });
       setTransactions(res.data.transactions);
       setTotalPages(Math.ceil(res.data.total / res.data.limit));
       setPage(pageNum);
@@ -227,8 +227,8 @@ export default function Admin() {
         ].map(t => (
           <div
             key={t.key}
-            style={{ ...styles.tab, ...(adminTab === t.key ? styles.tabActive : {}) }}
-            onClick={() => { setAdminTab(t.key); setSearchTerm(''); }}
+            style={{ ...styles.tab, ...(tab === t.key ? styles.tabActive : {}) }}
+            onClick={() => { setTab(t.key); setSearch(''); }}
           >
             {t.label}
           </div>
@@ -236,9 +236,9 @@ export default function Admin() {
       </div>
 
       {actionMsg && <div style={styles.actionMsg}>{actionMsg}</div>}
-      {loadError && <div style={styles.errorBox}>{loadError} <button onClick={() => { if (adminTab === 'users') fetchUsers(page); else if (adminTab === 'transactions') fetchTransactions(page); else if (adminTab === 'overview') fetchOverview(); else if (adminTab === 'providers') fetchProviders(); else if (adminTab === 'analytics') fetchDailyStats(); }} style={{ background: 'none', border: 'none', color: '#1a6b3c', cursor: 'pointer', fontSize: '13px', marginLeft: '8px' }}>Retry</button></div>}
+      {loadError && <div style={styles.errorBox}>{loadError} <button onClick={() => { if (tab === 'users') fetchUsers(page); else if (tab === 'transactions') fetchTransactions(page); else if (tab === 'overview') fetchOverview(); else if (tab === 'providers') fetchProviders(); else if (tab === 'analytics') fetchDailyStats(); }} style={{ background: 'none', border: 'none', color: '#1a6b3c', cursor: 'pointer', fontSize: '13px', marginLeft: '8px' }}>Retry</button></div>}
 
-      {adminTab === 'overview' && overview && (
+      {tab === 'overview' && overview && (
         <div>
           <div style={styles.statGrid}>
             <div style={styles.statCard}>
@@ -285,13 +285,13 @@ export default function Admin() {
         </div>
       )}
 
-      {adminTab === 'users' && (
+      {tab === 'users' && (
         <div>
           <input
             style={styles.searchInput}
             placeholder="Search by name or phone..."
-            value={searchTerm}
-            onChange={e => { setSearchTerm(e.target.value); setPage(1); }}
+            value={search}
+            onChange={e => { setSearch(e.target.value); setPage(1); }}
             onKeyDown={e => { if (e.key === 'Enter') fetchUsers(1); }}
           />
           <div style={styles.tableWrap}>
@@ -348,9 +348,9 @@ export default function Admin() {
         </div>
       )}
 
-      {adminTab === 'user-detail' && userDetail && (
+      {tab === 'user-detail' && userDetail && (
         <div>
-          <button onClick={() => { setAdminTab('users'); setUserDetail(null); }} style={styles.backBtn}>
+          <button onClick={() => { setTab('users'); setUserDetail(null); }} style={styles.backBtn}>
             ← Back to Users
           </button>
           <div style={styles.detailCard}>
@@ -425,14 +425,14 @@ export default function Admin() {
         </div>
       )}
 
-      {adminTab === 'transactions' && (
+      {tab === 'transactions' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <input
               style={styles.searchInput}
               placeholder="Search by reference, sender, or recipient..."
-              value={searchTerm}
-              onChange={e => { setSearchTerm(e.target.value); setPage(1); }}
+              value={search}
+              onChange={e => { setSearch(e.target.value); setPage(1); }}
               onKeyDown={e => { if (e.key === 'Enter') fetchTransactions(1); }}
             />
             <button onClick={exportTransactions} style={styles.exportBtn}>Export CSV</button>
@@ -493,7 +493,7 @@ export default function Admin() {
         </div>
       )}
 
-      {adminTab === 'providers' && (
+      {tab === 'providers' && (
         <div>
           <div style={styles.tableWrap}>
             <table style={styles.table}>
@@ -522,7 +522,7 @@ export default function Admin() {
         </div>
       )}
 
-      {adminTab === 'analytics' && (
+      {tab === 'analytics' && (
         <div>
           <div style={styles.chartCard}>
             <h3 style={styles.chartTitle}>Daily Transaction Volume (Last 30 Days)</h3>
