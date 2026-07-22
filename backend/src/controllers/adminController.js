@@ -236,6 +236,138 @@ exports.getDailyStats = async (req, res) => {
   }
 };
 
+exports.getProviderStats = async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT 
+        from_provider,
+        COUNT(*) as transaction_count,
+        COALESCE(SUM(amount), 0) as total_volume,
+        COALESCE(SUM(fee), 0) as total_fee
+       FROM transactions
+       WHERE status = 'completed'
+       GROUP BY from_provider
+       ORDER BY total_volume DESC`
+    );
+    res.json({ providers: result.rows });
+  } catch (err) {
+    console.error('Admin provider stats error:', err);
+    res.status(500).json({ error: 'Could not fetch provider stats' });
+  }
+};
+
+exports.getWalletStats = async (req, res) => {
+  try {
+    const walletsResult = await db.query(
+      `SELECT 
+        COALESCE(SUM(balance), 0) as total_balance,
+        COUNT(*) as total_wallets,
+        AVG(balance) as avg_balance
+       FROM wallets`
+    );
+    const linkedResult = await db.query(
+      `SELECT COUNT(*) as total_linked FROM linked_accounts WHERE is_active = true`
+    );
+    const walletActivities = await db.query(
+      `SELECT 
+        w.id,
+        w.balance,
+        COUNT(t.id) as transaction_count,
+        COALESCE(SUM(t.amount), 0) as volume
+       FROM wallets w
+       LEFT JOIN transactions t ON t.sender_user_id = w.user_id AND t.status = 'completed'
+       GROUP BY w.id, w.balance
+       ORDER BY volume DESC
+       LIMIT 10`
+    );
+    res.json({
+      total_balance: walletsResult.rows[0].total_balance,
+      total_wallets: walletsResult.rows[0].total_wallets,
+      avg_balance: walletsResult.rows[0].avg_balance,
+      total_linked: linkedResult.rows[0].total_linked,
+      top_wallets: walletActivities.rows,
+    });
+  } catch (err) {
+    console.error('Admin wallet stats error:', err);
+    res.status(500).json({ error: 'Could not fetch wallet stats' });
+  }
+};
+
+exports.getSavingsOverview = async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT 
+        COALESCE(SUM(amount), 0) as total_saved,
+        COUNT(*) as total_deposits,
+        COUNT(DISTINCT user_id) as savers_count
+       FROM savings_transactions
+       WHERE type = 'deposit'`
+    );
+    const goalsResult = await db.query(
+      `SELECT 
+        COUNT(*) as total_goals,
+        COUNT(*) FILTER (WHERE is_active = true) as active_goals,
+        COALESCE(SUM(target_amount), 0) as total_target,
+        COALESCE(SUM(current_amount), 0) as total_current
+       FROM savings_goals`
+    );
+    res.json({
+      total_saved: result.rows[0].total_saved,
+      total_deposits: result.rows[0].total_deposits,
+      savers_count: result.rows[0].savers_count,
+      total_goals: goalsResult.rows[0].total_goals,
+      active_goals: goalsResult.rows[0].active_goals,
+      total_target: goalsResult.rows[0].total_target,
+      total_current: goalsResult.rows[0].total_current,
+    });
+  } catch (err) {
+    console.error('Admin savings overview error:', err);
+    res.status(500).json({ error: 'Could not fetch savings overview' });
+  }
+};
+
+exports.getReversalStats = async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT 
+        COUNT(*) as total_reversed,
+        COALESCE(SUM(amount), 0) as reversed_volume,
+        DATE(created_at) as date
+       FROM transactions
+       WHERE status = 'reversed'
+       GROUP BY DATE(created_at)
+       ORDER BY date DESC
+       LIMIT 30`
+    );
+    res.json({ reversals: result.rows });
+  } catch (err) {
+    console.error('Admin reversal stats error:', err);
+    res.status(500).json({ error: 'Could not fetch reversal stats' });
+  }
+};
+
+exports.getTopUsers = async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT 
+        u.id, u.full_name, u.phone, u.simplepay_account_number,
+        w.balance,
+        COUNT(DISTINCT t.id) as transaction_count,
+        COALESCE(SUM(t.amount), 0) as total_volume
+       FROM users u
+       LEFT JOIN wallets w ON w.user_id = u.id
+       LEFT JOIN transactions t ON (t.sender_user_id = u.id OR t.receiver_identifier = u.simplepay_account_number) AND t.status = 'completed'
+       GROUP BY u.id, u.simplepay_account_number, w.balance
+       ORDER BY w.balance DESC NULLS LAST
+       LIMIT 20`
+    );
+    res.json({ top_users: result.rows });
+  } catch (err) {
+    console.error('Admin top users error:', err);
+    res.status(500).json({ error: 'Could not fetch top users' });
+  }
+};
+
 exports.reverseTransaction = async (req, res) => {
   const { reference } = req.params;
   try {
