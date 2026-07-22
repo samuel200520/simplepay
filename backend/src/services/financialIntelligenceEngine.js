@@ -1,86 +1,126 @@
 /**
  * Financial Intelligence Engine
  * 
- * Aggregates and analyzes financial data across ALL connected wallets:
- * - SimplePay Wallet
- * - Bank Accounts (via linked_wallets)
- * - Mobile Money Wallets (Orange Money, Africell Money, QMoney)
- * 
- * Provides:
- * - Total financial overview
- * - Wallet comparison & activity analysis
- * - Money received (inflow) analysis
- * - Money sent (outflow/spending) analysis
- * - Savings analysis
- * - Financial health scoring
- * - Smart insights generation
+ * Aggregates and analyzes financial data across ALL connected wallets.
+ * This implementation is resilient to missing tables/columns so the chat
+ * does not crash the whole pipeline when a single source is unavailable.
  */
 
 const db = require('../db');
 
-/**
- * Build a complete multi-wallet financial context for a user.
- * Queries ALL connected sources: SimplePay wallets, linked_wallets (banks, mobile money).
- */
+async function safeQuery(query, params = [], fallback = { rows: [] }) {
+  try {
+    return await db.query(query, params);
+  } catch (err) {
+    console.error('Financial engine query failed:', err.message);
+    return fallback;
+  }
+}
+
+async function tableExists(tableName) {
+  try {
+    return await db.getTableExists(tableName);
+  } catch (err) {
+    return false;
+  }
+}
+
 async function buildMultiWalletContext(userId) {
   // 1. Get user info
-  const userResult = await db.query(
+  const userResult = await safeQuery(
     'SELECT id, simplepay_account_number, full_name FROM users WHERE id = $1',
-    [userId]
+    [userId],
+    { rows: [{}] }
   );
   const user = userResult.rows[0] || {};
   const simplepayNumber = user.simplepay_account_number;
 
   // 2. Get SimplePay wallets (internal wallet system)
-  const spWallets = await db.query(
-    `SELECT id, user_id, balance, wallet_name, currency, provider, created_at 
-     FROM wallets WHERE user_id = $1`,
-    [userId]
-  );
+  const hasWallets = await tableExists('wallets');
+  const spWallets = hasWallets
+    ? await safeQuery(`SELECT id, user_id, balance, wallet_name, currency, provider, created_at FROM wallets WHERE user_id = $1`, [userId])
+    : { rows: [] };
 
   // 3. Get linked external wallets (banks, mobile money)
-  const linkedWallets = await db.query(
-    `SELECT lw.id, lw.provider_id, lw.account_number, lw.account_name, lw.wallet_name,
-            COALESCE(wb.balance, lw.balance, 0) as balance,
-            COALESCE(wb.currency, lw.currency, 'SLE') as currency,
-            lw.is_active, lw.last_sync, lw.created_at
-     FROM linked_wallets lw
-     LEFT JOIN wallet_balances wb ON wb.linked_wallet_id = lw.id
-     WHERE lw.user_id = $1 AND lw.is_active = true`,
-    [userId]
-  );
+  const hasLinkedWallets = await tableExists('linked_wallets');
+  const hasWalletBalances = await tableExists('wallet_balances');
+  let linkedWallets = { rows: [] };
+  if (hasLinkedWallets && hasWalletBalances) {
+    linkedWallets = await safeQuery(
+      `SELECT lw.id, lw.provider_id, lw.account_number, lw.account_name, lw.wallet_name,
+              COALESCE(wb.balance, lw.balance, 0) as balance,
+              COALESCE(wb.currency, lw.currency, 'SLE') as currency,
+              lw.is_active, lw.last_sync, lw.created_at
+       FROM linked_wallets lw
+       LEFT JOIN wallet_balances wb ON wb.linked_wallet_id = lw.id
+       WHERE lw.user_id = $1 AND lw.is_active = true`,
+      [userId],
+      { rows: [] }
+    );
+  } else if (hasLinkedWallets) {
+    linkedWallets = await safeQuery(
+      `SELECT id, provider_id, account_number, account_name, wallet_name,
+              COALESCE(balance, 0) as balance,
+              COALESCE(currency, 'SLE') as currency,
+              is_active, last_sync, created_at
+       FROM linked_wallets
+       WHERE user_id = $1 AND is_active = true`,
+      [userId],
+      { rows: [] }
+    );
+  }
 
   // 4. Get wallet_transactions (all wallet movement ledger)
-  const walletTxns = await db.query(
-    `SELECT wt.* FROM wallet_transactions wt
-     WHERE wt.user_id = $1 AND wt.status = 'completed'
-     ORDER BY wt.created_at DESC LIMIT 100`,
-    [userId]
-  );
+  const hasWalletTxns = await tableExists('wallet_transactions');
+  const walletTxns = hasWalletTxns
+    ? await safeQuery(`SELECT * FROM wallet_transactions WHERE user_id = $1 AND status = 'completed' ORDER BY created_at DESC LIMIT 100`, [userId])
+    : { rows: [] };
 
   // 5. Get regular transactions (SimplePay transfers)
-  const regularTxns = await db.query(
-    `SELECT t.*, tp.purpose
-     FROM transactions t
-     LEFT JOIN transaction_purposes tp ON tp.transaction_id = t.id AND tp.user_id = $1
-     WHERE (t.sender_user_id = $1 OR t.receiver_identifier = $2)
-       AND t.status = 'completed'
-     ORDER BY t.created_at DESC LIMIT 100`,
-    [userId, simplepayNumber]
-  );
+  const hasTransactionPurposes = await tableExists('transaction_purposes');
+  let regularTxns = { rows: [] };
+  if (hasTransactionPurposes) {
+    regularTxns = await safeQuery(
+      `SELECT t.*, tp.purpose
+       FROM transactions t
+       LEFT JOIN transaction_purposes tp ON tp.transaction_id = t.id AND tp.user_id = $1
+       WHERE (t.sender_user_id = $1 OR t.receiver_identifier = $2)
+         AND t.status = 'completed'
+       ORDER BY t.created_at DESC LIMIT 100`,
+      [userId, simplepayNumber],
+      { rows: [] }
+    );
+  } else {
+    regularTxns = await safeQuery(
+      `SELECT * FROM transactions
+       WHERE (sender_user_id = $1 OR receiver_identifier = $2)
+         AND status = 'completed'
+       ORDER BY created_at DESC LIMIT 100`,
+      [userId, simplepayNumber],
+      { rows: [] }
+    );
+  }
 
   // 6. Get savings data
-  const savingsResult = await db.query(
-    `SELECT COALESCE(SUM(amount), 0) as total_saved, COUNT(*) as deposit_count
-     FROM savings_transactions WHERE user_id = $1 AND type = 'deposit'`,
-    [userId]
-  );
+  const hasSavingsTxns = await tableExists('savings_transactions');
+  const savingsResult = hasSavingsTxns
+    ? await safeQuery(
+        `SELECT COALESCE(SUM(amount), 0) as total_saved, COUNT(*) as deposit_count
+         FROM savings_transactions WHERE user_id = $1 AND type = 'deposit'`,
+        [userId],
+        { rows: [{ total_saved: 0, deposit_count: 0 }] }
+      )
+    : { rows: [{ total_saved: 0, deposit_count: 0 }] };
 
   // 7. Get savings goals
-  const goals = await db.query(
-    `SELECT * FROM savings_goals WHERE user_id = $1 AND is_active = true ORDER BY created_at DESC`,
-    [userId]
-  );
+  const hasSavingsGoals = await tableExists('savings_goals');
+  const goals = hasSavingsGoals
+    ? await safeQuery(
+        `SELECT * FROM savings_goals WHERE user_id = $1 AND is_active = true ORDER BY created_at DESC`,
+        [userId],
+        { rows: [] }
+      )
+    : { rows: [] };
 
   return {
     userId,
@@ -95,14 +135,10 @@ async function buildMultiWalletContext(userId) {
   };
 }
 
-/**
- * Compute total available funds across ALL wallets.
- */
 function computeTotalBalance(ctx) {
   let total = 0;
   const breakdown = [];
 
-  // SimplePay wallets
   for (const w of ctx.spWallets) {
     const bal = Number(w.balance || 0);
     total += bal;
@@ -116,7 +152,6 @@ function computeTotalBalance(ctx) {
     });
   }
 
-  // Linked wallets (banks, mobile money)
   for (const lw of ctx.linkedWallets) {
     const bal = Number(lw.balance || 0);
     total += bal;
@@ -141,13 +176,9 @@ function getWalletType(providerId) {
   return 'bank';
 }
 
-/**
- * Analyze wallet activity: most used, transaction counts, money movement.
- */
 function computeWalletActivity(ctx) {
   const walletActivity = {};
 
-  // Initialize all wallets
   for (const w of ctx.spWallets) {
     walletActivity[w.id] = {
       walletId: w.id,
@@ -175,7 +206,6 @@ function computeWalletActivity(ctx) {
     };
   }
 
-  // Count from wallet_transactions
   for (const txn of ctx.walletTxns) {
     if (txn.type === 'transfer_out' || txn.type === 'debit') {
       const key = txn.from_linked_wallet_id ? `linked-${txn.from_linked_wallet_id}` : txn.wallet_id;
@@ -195,12 +225,9 @@ function computeWalletActivity(ctx) {
     }
   }
 
-  // Count from regular transactions (SimplePay sends/receives)
   for (const txn of ctx.regularTxns) {
     const isSender = txn.sender_user_id === ctx.userId;
     const isReceiver = txn.receiver_identifier === ctx.simplepayNumber && txn.sender_user_id !== ctx.userId;
-
-    // Find SimplePay wallet in activity
     const spKey = Object.keys(walletActivity).find(k => !k.startsWith('linked-'));
     if (spKey) {
       if (isSender && (txn.fee > 0 || txn.to_provider !== 'simplepay')) {
@@ -219,24 +246,18 @@ function computeWalletActivity(ctx) {
   const activityList = Object.values(walletActivity);
   activityList.sort((a, b) => b.totalTransactions - a.totalTransactions);
 
-  const mostActive = activityList[0] || null;
-
   return {
     wallets: activityList,
-    mostActive,
+    mostActive: activityList[0] || null,
     totalWallets: activityList.length,
   };
 }
 
-/**
- * Compute money received (inflow) analysis across all wallets.
- */
 function computeMoneyReceived(ctx) {
   let totalReceived = 0;
   let transactionCount = 0;
   const sources = {};
 
-  // From wallet_transactions (credits/transfers_in)
   for (const txn of ctx.walletTxns) {
     if (txn.type === 'transfer_in' || txn.type === 'credit') {
       const amount = Number(txn.amount || 0);
@@ -249,7 +270,6 @@ function computeMoneyReceived(ctx) {
     }
   }
 
-  // From regular transactions (received by SimplePay number)
   for (const txn of ctx.regularTxns) {
     if (txn.receiver_identifier === ctx.simplepayNumber && txn.sender_user_id !== ctx.userId) {
       const amount = Number(txn.amount || 0);
@@ -275,16 +295,12 @@ function computeMoneyReceived(ctx) {
   };
 }
 
-/**
- * Compute money sent (outflow/spending) analysis across all wallets.
- */
 function computeMoneySent(ctx) {
   let totalSent = 0;
   let transactionCount = 0;
   const destinations = {};
   const categories = {};
 
-  // From wallet_transactions (debits/transfers_out)
   for (const txn of ctx.walletTxns) {
     if (txn.type === 'transfer_out' || txn.type === 'debit') {
       const amount = Number(txn.amount || 0);
@@ -297,7 +313,6 @@ function computeMoneySent(ctx) {
     }
   }
 
-  // From regular transactions (SimplePay sends)
   for (const txn of ctx.regularTxns) {
     if (txn.sender_user_id === ctx.userId && (txn.fee > 0 || txn.to_provider !== 'simplepay')) {
       const amount = Number(txn.amount || 0);
@@ -308,7 +323,6 @@ function computeMoneySent(ctx) {
       destinations[dest].total += amount;
       destinations[dest].count++;
 
-      // Categorize by purpose
       const cat = txn.purpose || 'Other';
       if (!categories[cat]) categories[cat] = { total: 0, count: 0 };
       categories[cat].total += amount;
@@ -334,9 +348,6 @@ function computeMoneySent(ctx) {
   };
 }
 
-/**
- * Compute savings analysis.
- */
 function computeSavingsAnalysis(ctx) {
   const totalSaved = Number(ctx.savings?.total_saved || 0);
   const depositCount = Number(ctx.savings?.deposit_count || 0);
@@ -380,42 +391,33 @@ function computeSavingsAnalysis(ctx) {
   };
 }
 
-/**
- * Compute financial health score (0-100).
- */
 function computeHealthScore(ctx, balanceData, moneyReceived, moneySent, savingsAnalysis) {
-  let score = 50; // baseline
+  let score = 50;
 
   const totalBalance = balanceData.total;
   const totalSent = moneySent.totalSent;
   const totalReceived = moneyReceived.totalReceived;
   const totalSaved = savingsAnalysis.totalSaved;
 
-  // Balance check
   if (totalBalance > 0) score += 5;
   if (totalBalance > 1000) score += 5;
   if (totalBalance > 5000) score += 5;
 
-  // Income vs spending
   if (totalReceived > 0) score += 5;
   if (totalReceived > totalSent && totalSent > 0) score += 10;
   if (totalReceived > totalSent * 1.5) score += 5;
 
-  // Savings
   if (totalSaved > 0) score += 10;
   if (totalSaved > totalSent * 0.1 && totalSent > 0) score += 5;
   if (totalSaved > totalSent * 0.2 && totalSent > 0) score += 5;
 
-  // Goals
   if (savingsAnalysis.goalsCount > 0) score += 5;
   if (savingsAnalysis.completedGoals > 0) score += 5;
   if (savingsAnalysis.overallProgress >= 50) score += 5;
 
-  // Wallet diversity (having multiple wallets = good financial management)
   if (balanceData.breakdown.length >= 2) score += 3;
   if (balanceData.breakdown.length >= 3) score += 2;
 
-  // Transaction activity
   const totalTxns = moneyReceived.transactionCount + moneySent.transactionCount;
   if (totalTxns > 5) score += 3;
   if (totalTxns > 20) score += 2;
@@ -423,13 +425,9 @@ function computeHealthScore(ctx, balanceData, moneyReceived, moneySent, savingsA
   return Math.min(100, Math.max(0, score));
 }
 
-/**
- * Generate smart insights based on multi-wallet data.
- */
 function generateSmartInsights(ctx, balanceData, walletActivity, moneyReceived, moneySent, savingsAnalysis, healthScore) {
   const insights = [];
 
-  // Multi-wallet overview insight
   if (balanceData.breakdown.length > 1) {
     const richest = balanceData.breakdown.sort((a, b) => b.balance - a.balance)[0];
     insights.push({
@@ -439,7 +437,6 @@ function generateSmartInsights(ctx, balanceData, walletActivity, moneyReceived, 
     });
   }
 
-  // Most active wallet
   if (walletActivity.mostActive && walletActivity.mostActive.totalTransactions > 0) {
     insights.push({
       type: 'info',
@@ -448,7 +445,6 @@ function generateSmartInsights(ctx, balanceData, walletActivity, moneyReceived, 
     });
   }
 
-  // Spending category insight
   if (moneySent.categories.length > 0) {
     const topCat = moneySent.categories[0];
     const sentTotal = moneySent.totalSent;
@@ -463,7 +459,6 @@ function generateSmartInsights(ctx, balanceData, walletActivity, moneyReceived, 
     });
   }
 
-  // Income vs spending
   if (moneyReceived.totalReceived > 0 && moneySent.totalSent > 0) {
     const received = moneyReceived.totalReceived;
     const sent = moneySent.totalSent;
@@ -483,7 +478,6 @@ function generateSmartInsights(ctx, balanceData, walletActivity, moneyReceived, 
     }
   }
 
-  // Savings insights
   if (savingsAnalysis.goalsCount > 0) {
     const nearComplete = savingsAnalysis.goals.find(g => g.progress >= 75 && g.progress < 100);
     if (nearComplete) {
@@ -501,7 +495,6 @@ function generateSmartInsights(ctx, balanceData, walletActivity, moneyReceived, 
     });
   }
 
-  // Health score insight
   const scoreLabel = healthScore >= 80 ? 'Excellent' : healthScore >= 60 ? 'Good' : healthScore >= 40 ? 'Fair' : 'Needs Improvement';
   insights.push({
     type: healthScore >= 60 ? 'success' : 'warning',
@@ -509,7 +502,6 @@ function generateSmartInsights(ctx, balanceData, walletActivity, moneyReceived, 
     message: `Your score is ${healthScore}/100. ${getHealthAdvice(healthScore)}`,
   });
 
-  // Monthly comparison (if we have enough data)
   const sentCount = moneySent.transactionCount;
   const receivedCount = moneyReceived.transactionCount;
   if (sentCount >= 5) {
@@ -527,12 +519,9 @@ function getHealthAdvice(score) {
   if (score >= 80) return 'You\'re managing your finances well across all wallets. Keep maintaining these healthy habits.';
   if (score >= 60) return 'Good progress! Focus on building your savings and reducing unnecessary spending.';
   if (score >= 40) return 'There\'s room for improvement. Start tracking expenses and creating savings goals.';
-  return 'Focus on reducing spending, increasing savings, and diversifying your wallet management.';
+  return 'Focus on reducing spending, building savings, and creating financial goals. I can help you make a plan.';
 }
 
-/**
- * Build the complete financial overview (top-level aggregation).
- */
 async function getFinancialOverview(userId) {
   const ctx = await buildMultiWalletContext(userId);
   const balanceData = computeTotalBalance(ctx);
@@ -556,17 +545,18 @@ async function getFinancialOverview(userId) {
   };
 }
 
-/**
- * Build a simplified context object for the LLM/AI chat.
- */
+function safeMap(arr, fallback = []) {
+  if (!Array.isArray(arr)) return fallback;
+  return arr;
+}
+
 async function buildChatContext(userId) {
   const overview = await getFinancialOverview(userId);
   
   return {
-    // Balance overview
     total_balance: overview.totalBalance,
     wallet_count: overview.totalWallets,
-    wallets: overview.walletBreakdown.map(w => ({
+    wallets: safeMap(overview.walletBreakdown).map(w => ({
       name: w.name,
       provider: w.provider,
       type: w.type,
@@ -574,8 +564,7 @@ async function buildChatContext(userId) {
       currency: w.currency,
     })),
 
-    // Wallet activity
-    most_active_wallet: overview.walletActivity.mostActive
+    most_active_wallet: overview.walletActivity?.mostActive
       ? {
           name: overview.walletActivity.mostActive.name,
           transactions: overview.walletActivity.mostActive.totalTransactions,
@@ -583,7 +572,7 @@ async function buildChatContext(userId) {
           receivedVolume: overview.walletActivity.mostActive.receivedVolume,
         }
       : null,
-    all_wallet_activity: overview.walletActivity.wallets.map(w => ({
+    all_wallet_activity: safeMap(overview.walletActivity?.wallets).map(w => ({
       name: w.name,
       provider: w.provider,
       sentCount: w.sentCount,
@@ -592,27 +581,24 @@ async function buildChatContext(userId) {
       receivedVolume: w.receivedVolume,
     })),
 
-    // Money received
     total_received: overview.moneyReceived.totalReceived,
     received_transaction_count: overview.moneyReceived.transactionCount,
     average_received: overview.moneyReceived.averageReceived,
-    received_sources: overview.moneyReceived.sources,
+    received_sources: safeMap(overview.moneyReceived.sources),
 
-    // Money sent
     total_sent: overview.moneySent.totalSent,
     sent_transaction_count: overview.moneySent.transactionCount,
     average_sent: overview.moneySent.averageSent,
-    spending_categories: overview.moneySent.categories,
-    spending_destinations: overview.moneySent.destinations,
+    spending_categories: safeMap(overview.moneySent.categories),
+    spending_destinations: safeMap(overview.moneySent.destinations),
 
-    // Savings
     total_saved: overview.savings.totalSaved,
     savings_deposit_count: overview.savings.depositCount,
     goals_count: overview.savings.goalsCount,
     active_goals: overview.savings.activeGoals,
     completed_goals: overview.savings.completedGoals,
     savings_progress: overview.savings.overallProgress,
-    goals: overview.savings.goals.map(g => ({
+    goals: safeMap(overview.savings.goals).map(g => ({
       name: g.name,
       target: g.targetAmount,
       current: g.currentAmount,
@@ -620,12 +606,10 @@ async function buildChatContext(userId) {
       remaining: g.remaining,
     })),
 
-    // Health
     health_score: overview.healthScore,
     health_label: overview.healthScore >= 80 ? 'Excellent' : overview.healthScore >= 60 ? 'Good' : overview.healthScore >= 40 ? 'Fair' : 'Needs Improvement',
 
-    // Insights
-    smart_insights: overview.insights,
+    smart_insights: safeMap(overview.insights),
   };
 }
 

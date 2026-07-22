@@ -195,20 +195,14 @@ exports.chatWithCoach = async (req, res) => {
   }
 
   try {
-    // Build multi-wallet financial context using the engine
     const financialContext = await financialEngine.buildChatContext(userId);
 
-    // Get conversation history for context memory
     const history = await getConversationHistory(userId, 20);
     const chatMessages = history.map(h => ({ role: h.role, content: h.content }));
-
-    // Add the new user message
     chatMessages.push({ role: 'user', content: message.trim() });
 
-    // Get AI response (uses LLM if configured, falls back to sophisticated rules)
     const response = await llmService.chatWithLLM(chatMessages, financialContext);
 
-    // Save conversation
     await saveMessage(userId, 'user', message.trim());
     await saveMessage(userId, 'assistant', response);
 

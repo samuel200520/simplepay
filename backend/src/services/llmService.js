@@ -11,17 +11,21 @@ async function chatWithLLM(messages, financialContext) {
  * Main response generator - routes queries to specialized handlers
  */
 function generateIntelligentResponse(messages, ctx) {
-  if (!messages || messages.length === 0) {
-    return buildWelcomeMessage(ctx);
+  try {
+    if (!messages || messages.length === 0) {
+      return buildWelcomeMessage(ctx);
+    }
+
+    const lastMsg = messages[messages.length - 1];
+    const userMessage = (lastMsg.content || '').toLowerCase().trim();
+
+    const context = extractConversationContext(messages);
+    
+    return routeQuery(userMessage, ctx, context);
+  } catch (err) {
+    console.error('LLM generation error:', err);
+    return fallbackMessage();
   }
-
-  const lastMsg = messages[messages.length - 1];
-  const userMessage = (lastMsg.content || '').toLowerCase().trim();
-
-  // Extract conversation context for follow-up handling
-  const context = extractConversationContext(messages);
-  
-  return routeQuery(userMessage, ctx, context);
 }
 
 function extractConversationContext(messages) {
@@ -135,6 +139,10 @@ function routeQuery(lower, ctx, conversationContext = {}) {
   }
 
   if (containsAny(lower, ['spend', 'spent', 'spending', 'expense', 'where', 'going', 'biggest', 'largest', 'top'])) {
+    return answerSpending(lower, ctx);
+  }
+
+  if (containsAny(lower, ['transaction', 'transactions', 'recent', 'history', 'activity'])) {
     return answerSpending(lower, ctx);
   }
 

@@ -53,6 +53,15 @@ async function runStartupMigrations() {
     );
     const existingTables = new Set(tables.rows.map(r => r.table_name));
 
+    const hasWalletName = await db.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = 'wallets' AND column_name = 'wallet_name'`
+    );
+    if (hasWalletName.rows.length === 0) {
+      await db.query(`ALTER TABLE wallets ADD COLUMN IF NOT EXISTS wallet_name VARCHAR(255)`);
+      await db.query(`ALTER TABLE wallets ADD COLUMN IF NOT EXISTS provider VARCHAR(50) DEFAULT 'simplepay'`);
+      console.log('Added wallet_name and provider columns to wallets');
+    }
+
     if (!existingTables.has('linked_wallets')) {
       await db.query(`CREATE TABLE linked_wallets (
         id SERIAL PRIMARY KEY,
