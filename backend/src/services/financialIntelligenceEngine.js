@@ -69,17 +69,42 @@ async function buildMultiWalletContext(userId) {
       { rows: [] }
     );
 
+    let linkedWalletMap = {};
+    if (hasLinkedWallets && laResult.rows.length > 0) {
+      try {
+        const lwResult = await safeQuery(
+          `SELECT id, provider_id, account_number FROM linked_wallets WHERE user_id = $1 AND is_active = true`,
+          [userId],
+          { rows: [] }
+        );
+        for (const la of laResult.rows) {
+          const match = lwResult.rows.find(lw => lw.provider_id === la.provider_id && lw.account_number === la.account_number);
+          if (match) {
+            linkedWalletMap[la.id] = match.id;
+          }
+        }
+      } catch (err) {
+        console.error('linked_wallets mapping failed:', err.message);
+      }
+    }
+
     if (laResult.rows.length > 0) {
       const laIds = laResult.rows.map(r => r.id);
       let balanceMap = {};
       if (hasWalletBalances && laIds.length > 0) {
-        const balResult = await safeQuery(
-          `SELECT linked_wallet_id, balance, currency, last_sync FROM wallet_balances WHERE linked_wallet_id = ANY($1::int[])`,
-          [laIds],
-          { rows: [] }
-        );
-        for (const row of balResult.rows) {
-          balanceMap[row.linked_wallet_id] = row;
+        const lwIds = Object.values(linkedWalletMap);
+        if (lwIds.length > 0) {
+          const balResult = await safeQuery(
+            `SELECT linked_wallet_id, balance, currency, last_sync FROM wallet_balances WHERE linked_wallet_id = ANY($1::int[])`,
+            [lwIds],
+            { rows: [] }
+          );
+          for (const row of balResult.rows) {
+            const laId = Object.keys(linkedWalletMap).find(key => linkedWalletMap[key] === row.linked_wallet_id);
+            if (laId) {
+              balanceMap[parseInt(laId)] = { balance: Number(row.balance), currency: row.currency, lastSync: row.last_sync };
+            }
+          }
         }
       }
 
@@ -90,7 +115,7 @@ async function buildMultiWalletContext(userId) {
           wallet_name: r.account_name,
           balance: Number(cached.balance ?? 0),
           currency: cached.currency || 'SLE',
-          last_sync: cached.last_sync || r.created_at,
+          last_sync: cached.lastSync || r.created_at,
           _source: 'linked_accounts',
         };
       });

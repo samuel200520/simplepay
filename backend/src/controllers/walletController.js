@@ -34,17 +34,47 @@ exports.getWalletCards = async (req, res) => {
     );
 
     const linkedIds = linked.rows.map(r => r.id);
+
+    let linkedWalletIdMap = {};
+    let linkedWalletIds = [];
+    const hasLinkedWallets = await db.getTableExists('linked_wallets');
+    if (hasLinkedWallets && linked.rows.length > 0) {
+      try {
+        const lwResult = await db.query(
+          'SELECT id, provider_id, account_number FROM linked_wallets WHERE user_id = $1 AND is_active = true',
+          [userId]
+        );
+        for (const la of linked.rows) {
+          const match = lwResult.rows.find(lw => lw.provider_id === la.provider_id && lw.account_number === la.account_number);
+          if (match) {
+            linkedWalletIdMap[la.id] = match.id;
+          }
+        }
+        linkedWalletIds = Object.values(linkedWalletIdMap);
+      } catch (err) {
+        console.error('linked_wallets mapping failed:', err.message);
+      }
+    }
+
+    const allWalletIds = [...linkedIds, ...linkedWalletIds];
     let balanceMap = {};
-    if (linkedIds.length > 0) {
+    if (allWalletIds.length > 0) {
       const hasWalletBalances = await db.getTableExists('wallet_balances');
       if (hasWalletBalances) {
         try {
           const balResult = await db.query(
             `SELECT linked_wallet_id, balance, currency, last_sync FROM wallet_balances WHERE linked_wallet_id = ANY($1::int[])`,
-            [linkedIds]
+            [allWalletIds]
           );
           for (const row of balResult.rows) {
-            balanceMap[row.linked_wallet_id] = { balance: Number(row.balance), currency: row.currency, lastSync: row.last_sync };
+            if (linkedWalletIdMap[row.linked_wallet_id] !== undefined) {
+              const laId = Object.keys(linkedWalletIdMap).find(key => linkedWalletIdMap[key] === row.linked_wallet_id);
+              if (laId) {
+                balanceMap[parseInt(laId)] = { balance: Number(row.balance), currency: row.currency, lastSync: row.last_sync };
+              }
+            } else if (linkedIds.includes(row.linked_wallet_id)) {
+              balanceMap[row.linked_wallet_id] = { balance: Number(row.balance), currency: row.currency, lastSync: row.last_sync };
+            }
           }
         } catch (err) {
           console.error('wallet_balances query failed:', err.message);
@@ -102,8 +132,8 @@ exports.syncWallet = async (req, res) => {
     }
 
     if (String(walletId).startsWith('linked-')) {
-      const linkedAccountId = walletId.split('-')[1];
-      
+      const linkedAccountId = String(walletId).split('-')[1];
+
       let la = null;
       const hasLinkedWallets = await db.getTableExists('linked_wallets');
       if (hasLinkedWallets) {
@@ -116,13 +146,29 @@ exports.syncWallet = async (req, res) => {
           console.error('linked_wallets query failed:', err.message);
         }
       }
-      
+
       if (!la || !la.rows.length) {
         la = await db.query(
           'SELECT id, provider_id, account_number FROM linked_accounts WHERE id = $1 AND user_id = $2 AND is_active = true',
           [linkedAccountId, userId]
         );
         if (!la.rows.length) return res.status(404).json({ error: 'Wallet not found' });
+      }
+
+      const hasLinkedWalletsForBalance = await db.getTableExists('linked_wallets');
+      let actualLinkedWalletId = linkedAccountId;
+      if (hasLinkedWalletsForBalance && la.rows[0].id !== undefined) {
+        try {
+          const lwIdResult = await db.query(
+            'SELECT id FROM linked_wallets WHERE user_id = $1 AND provider_id = $2 AND account_number = $3 AND is_active = true LIMIT 1',
+            [userId, la.rows[0].provider_id, la.rows[0].account_number]
+          );
+          if (lwIdResult.rows.length > 0) {
+            actualLinkedWalletId = lwIdResult.rows[0].id;
+          }
+        } catch (err) {
+          console.error('linked_wallets id lookup failed:', err.message);
+        }
       }
 
       const { provider_id, account_number } = la.rows[0];
@@ -139,7 +185,7 @@ exports.syncWallet = async (req, res) => {
                SET balance = EXCLUDED.balance,
                    currency = EXCLUDED.currency,
                    last_sync = EXCLUDED.last_sync`,
-            [linkedAccountId, sync.balance, sync.currency]
+            [actualLinkedWalletId, sync.balance, sync.currency]
           );
         } catch (err) {
           console.error('wallet_balances insert failed:', err.message);
@@ -570,7 +616,7 @@ exports.transferBetweenWallets = async (req, res) => {
     let newBalance = null;
     if (fromLinkedWallet && hasWalletBalances) {
       try {
-        const balResult = await client.query('SELECT balance FROM wallet_balances WHERE linked_wallet_id = $1', [fromLinkedWallet.id]);
+        const balResult = await db.query('SELECT balance FROM wallet_balances WHERE linked_wallet_id = $1', [fromLinkedWallet.id]);
         newBalance = balResult.rows[0] ? Number(balResult.rows[0].balance) : null;
       } catch (err) {
         console.error('new balance check failed:', err.message);
@@ -584,13 +630,37 @@ exports.transferBetweenWallets = async (req, res) => {
     await client.query('COMMIT');
 
     if (hasWalletBalances) {
+      let fromLinkedWalletBalanceId = fromLinkedWallet.id;
+      let toLinkedWalletBalanceId = toLinkedWallet?.id || null;
+
+      if (hasLinkedWallets) {
+        try {
+          if (fromLinkedWallet) {
+            const fLw = await db.query(
+              'SELECT id FROM linked_wallets WHERE user_id = $1 AND provider_id = $2 AND account_number = $3 AND is_active = true LIMIT 1',
+              [userId, fromLinkedWallet.provider_id, fromLinkedWallet.account_number]
+            );
+            if (fLw.rows.length > 0) fromLinkedWalletBalanceId = fLw.rows[0].id;
+          }
+          if (toLinkedWallet) {
+            const tLw = await db.query(
+              'SELECT id FROM linked_wallets WHERE user_id = $1 AND provider_id = $2 AND account_number = $3 AND is_active = true LIMIT 1',
+              [userId, toLinkedWallet.provider_id, toLinkedWallet.account_number]
+            );
+            if (tLw.rows.length > 0) toLinkedWalletBalanceId = tLw.rows[0].id;
+          }
+        } catch (err) {
+          console.error('linked_wallets balance id lookup failed:', err.message);
+        }
+      }
+
       if (fromLinkedWallet) {
         try {
           await client.query(
             `INSERT INTO wallet_balances (linked_wallet_id, balance, currency, last_sync)
              VALUES ($1, 0 - $2, 'SLE', NOW())
              ON CONFLICT (linked_wallet_id) DO UPDATE SET balance = wallet_balances.balance + EXCLUDED.balance, last_sync = EXCLUDED.last_sync`,
-            [fromLinkedWallet.id, transferAmount]
+            [fromLinkedWalletBalanceId, transferAmount]
           );
         } catch (err) {
           console.error('wallet_balances debit failed:', err.message);
@@ -602,7 +672,7 @@ exports.transferBetweenWallets = async (req, res) => {
             `INSERT INTO wallet_balances (linked_wallet_id, balance, currency, last_sync)
              VALUES ($1, $2, 'SLE', NOW())
              ON CONFLICT (linked_wallet_id) DO UPDATE SET balance = wallet_balances.balance + EXCLUDED.balance, last_sync = EXCLUDED.last_sync`,
-            [toLinkedWallet.id, transferAmount]
+            [toLinkedWalletBalanceId, transferAmount]
           );
         } catch (err) {
           console.error('wallet_balances credit failed:', err.message);
