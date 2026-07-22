@@ -43,32 +43,69 @@ async function buildMultiWalletContext(userId) {
 
   // 3. Get linked external wallets (banks, mobile money)
   const hasLinkedWallets = await tableExists('linked_wallets');
+  const hasLinkedAccounts = await tableExists('linked_accounts');
   const hasWalletBalances = await tableExists('wallet_balances');
-  let linkedWallets = { rows: [] };
-  if (hasLinkedWallets && hasWalletBalances) {
-    linkedWallets = await safeQuery(
-      `SELECT lw.id, lw.provider_id, lw.account_number, lw.account_name, lw.wallet_name,
-              COALESCE(wb.balance, lw.balance, 0) as balance,
-              COALESCE(wb.currency, lw.currency, 'SLE') as currency,
-              lw.is_active, lw.last_sync, lw.created_at
-       FROM linked_wallets lw
-       LEFT JOIN wallet_balances wb ON wb.linked_wallet_id = lw.id
-       WHERE lw.user_id = $1 AND lw.is_active = true`,
-      [userId],
-      { rows: [] }
-    );
-  } else if (hasLinkedWallets) {
-    linkedWallets = await safeQuery(
-      `SELECT id, provider_id, account_number, account_name, wallet_name,
-              COALESCE(balance, 0) as balance,
-              COALESCE(currency, 'SLE') as currency,
-              is_active, last_sync, created_at
-       FROM linked_wallets
-       WHERE user_id = $1 AND is_active = true`,
-      [userId],
-      { rows: [] }
-    );
+
+  let linkedWalletsRows = [];
+
+  if (hasLinkedWallets) {
+    let q = `SELECT id, provider_id, account_number, account_name, wallet_name,
+                    COALESCE(balance, 0) as balance,
+                    COALESCE(currency, 'SLE') as currency,
+                    is_active, last_sync, created_at
+             FROM linked_wallets
+             WHERE user_id = $1 AND is_active = true`;
+    const lwResult = await safeQuery(q, [userId], { rows: [] });
+    linkedWalletsRows = linkedWalletsRows.concat(lwResult.rows.map(r => ({ ...r, _source: 'linked_wallets' })));
   }
+
+  if (hasLinkedAccounts) {
+    const laResult = await safeQuery(
+      `SELECT id, provider_id, account_number, account_name, is_active, created_at
+       FROM linked_accounts
+       WHERE user_id = $1 AND is_active = true
+       ORDER BY created_at DESC`,
+      [userId],
+      { rows: [] }
+    );
+
+    if (laResult.rows.length > 0) {
+      const laIds = laResult.rows.map(r => r.id);
+      let balanceMap = {};
+      if (hasWalletBalances && laIds.length > 0) {
+        const balResult = await safeQuery(
+          `SELECT linked_wallet_id, balance, currency, last_sync FROM wallet_balances WHERE linked_wallet_id = ANY($1::int[])`,
+          [laIds],
+          { rows: [] }
+        );
+        for (const row of balResult.rows) {
+          balanceMap[row.linked_wallet_id] = row;
+        }
+      }
+
+      const legacyRows = laResult.rows.map(r => {
+        const cached = balanceMap[r.id] || {};
+        return {
+          ...r,
+          wallet_name: r.account_name,
+          balance: Number(cached.balance ?? 0),
+          currency: cached.currency || 'SLE',
+          last_sync: cached.last_sync || r.created_at,
+          _source: 'linked_accounts',
+        };
+      });
+
+      const existingKeys = new Set(linkedWalletsRows.map(r => `${r.provider_id}:${r.account_number}`));
+      for (const row of legacyRows) {
+        const key = `${row.provider_id}:${row.account_number}`;
+        if (!existingKeys.has(key)) {
+          linkedWalletsRows.push(row);
+        }
+      }
+    }
+  }
+
+  const linkedWallets = { rows: linkedWalletsRows };
 
   // 4. Get wallet_transactions (all wallet movement ledger)
   const hasWalletTxns = await tableExists('wallet_transactions');
