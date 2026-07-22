@@ -80,6 +80,34 @@ exports.getInsights = async (req, res) => {
       [userId]
     );
 
+    // Get weekly stats for trend analysis
+    const weeklyResult = await db.query(
+      `SELECT DATE_TRUNC('week', created_at) as month, SUM(amount) as total_spent, SUM(fee) as total_fees, COUNT(*) as transaction_count
+       FROM transactions WHERE sender_user_id = $1 AND status = 'completed' AND (fee > 0 OR to_provider != 'simplepay')
+       GROUP BY DATE_TRUNC('week', created_at) ORDER BY month DESC LIMIT 8`,
+      [userId]
+    );
+
+    // Get yearly stats for trend analysis
+    const yearlyResult = await db.query(
+      `SELECT DATE_TRUNC('year', created_at) as month, SUM(amount) as total_spent, SUM(fee) as total_fees, COUNT(*) as transaction_count
+       FROM transactions WHERE sender_user_id = $1 AND status = 'completed' AND (fee > 0 OR to_provider != 'simplepay')
+       GROUP BY DATE_TRUNC('year', created_at) ORDER BY month DESC LIMIT 3`,
+      [userId]
+    );
+
+    // Get recent transactions for dashboard
+    const recentTxns = await db.query(
+      `SELECT t.*, tp.purpose, u.full_name as sender_name
+       FROM transactions t
+       LEFT JOIN transaction_purposes tp ON tp.transaction_id = t.id AND tp.user_id = $1
+       LEFT JOIN users u ON u.id = t.sender_user_id
+       WHERE (t.sender_user_id = $1 OR t.receiver_identifier = (SELECT simplepay_account_number FROM users WHERE id = $1))
+         AND t.status = 'completed'
+       ORDER BY t.created_at DESC LIMIT 10`,
+      [userId]
+    );
+
     res.json({
       // Multi-wallet overview (NEW)
       total_balance: overview.totalBalance,
@@ -87,17 +115,18 @@ exports.getInsights = async (req, res) => {
       wallet_count: overview.totalWallets,
       wallet_activity: overview.walletActivity,
 
-      // Money analysis (NEW terminology: "received" not "income")
+      // Money received analysis
       total_received: overview.moneyReceived.totalReceived,
       received_transaction_count: overview.moneyReceived.transactionCount,
       average_received: overview.moneyReceived.averageReceived,
       received_sources: overview.moneyReceived.sources,
 
-      // Spending analysis
+      // Money sent analysis
       total_sent: overview.moneySent.totalSent,
       sent_transaction_count: overview.moneySent.transactionCount,
       average_sent: overview.moneySent.averageSent,
       spending_categories: overview.moneySent.categories,
+      spending_destinations: overview.moneySent.destinations,
 
       // Savings
       total_saved: overview.savings.totalSaved,
@@ -113,12 +142,18 @@ exports.getInsights = async (req, res) => {
       // Insights
       insights: overview.insights,
 
+      // Trend data
+      weekly_stats: weeklyResult.rows,
+      monthly_stats: monthlyResult.rows,
+      yearly_stats: yearlyResult.rows,
+
+      // Recent transactions
+      recent_transactions: recentTxns.rows,
+
       // Legacy fields for backward compatibility with existing UI
       wallet_balance: overview.totalBalance,
       spending_breakdown: spendingResult.rows,
-      monthly_stats: monthlyResult.rows,
       goals: goalsResult.rows,
-      total_spent: overview.moneySent.totalSent,
     });
   } catch (err) {
     console.error('Insights error:', err);
