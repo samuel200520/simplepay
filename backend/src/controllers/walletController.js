@@ -306,6 +306,7 @@ exports.transferBetweenWallets = async (req, res) => {
     let fromProvider = null;
     let fromAccountNumber = null;
     let fromIsSimplepay = false;
+    let fromLinkedWalletBalanceId = null;
 
     if (String(fromWalletId).startsWith('simplepay-')) {
       fromIsSimplepay = true;
@@ -346,13 +347,26 @@ exports.transferBetweenWallets = async (req, res) => {
       fromLinkedWallet = la.rows[0];
       fromProvider = fromLinkedWallet.provider_id;
       fromAccountNumber = fromLinkedWallet.account_number;
+      fromLinkedWalletBalanceId = linkedWalletId;
+
+      if (hasLinkedWallets) {
+        try {
+          const fLw = await client.query(
+            'SELECT id FROM linked_wallets WHERE user_id = $1 AND provider_id = $2 AND account_number = $3 AND is_active = true LIMIT 1',
+            [userId, fromLinkedWallet.provider_id, fromLinkedWallet.account_number]
+          );
+          if (fLw.rows.length > 0) fromLinkedWalletBalanceId = fLw.rows[0].id;
+        } catch (err) {
+          console.error('linked_wallets balance id lookup failed:', err.message);
+        }
+      }
       
       const hasWalletBalances = await db.getTableExists('wallet_balances');
       if (hasWalletBalances) {
         try {
           const balResult = await client.query(
             'SELECT balance FROM wallet_balances WHERE linked_wallet_id = $1',
-            [linkedWalletId]
+            [fromLinkedWalletBalanceId]
           );
           const linkedBalance = Number(balResult.rows[0]?.balance || 0);
           if (linkedBalance < transferAmount) {
@@ -375,31 +389,13 @@ exports.transferBetweenWallets = async (req, res) => {
       return res.status(400).json({ error: 'Invalid fromWalletId' });
     }
 
-    if (fromLinkedWallet) {
-      const hasWalletBalances = await db.getTableExists('wallet_balances');
-      if (hasWalletBalances) {
-        try {
-          const balResult = await client.query(
-            'SELECT balance FROM wallet_balances WHERE linked_wallet_id = $1',
-            [String(fromWalletId).split('-')[1]]
-          );
-          const linkedBalance = Number(balResult.rows[0]?.balance || 0);
-          if (linkedBalance < transferAmount) {
-            await client.query('ROLLBACK');
-            return res.status(400).json({ error: `Insufficient ${fromProvider} balance (NLe ${linkedBalance.toLocaleString()})` });
-          }
-        } catch (err) {
-          console.error('wallet_balances check failed:', err.message);
-        }
-      }
-    }
-
     let toWallet = null;
     let toLinkedWallet = null;
     let toIsSimplepay = false;
     let resolvedToProvider = toProvider;
     let resolvedToAccountNumber = toRecipient;
     let toUserId = null;
+    let toLinkedWalletBalanceId = null;
 
     if (toWalletId) {
       if (String(toWalletId).startsWith('simplepay-')) {
@@ -438,6 +434,19 @@ exports.transferBetweenWallets = async (req, res) => {
         resolvedToProvider = toLinkedWallet.provider_id;
         resolvedToAccountNumber = toLinkedWallet.account_number;
         toUserId = userId;
+        toLinkedWalletBalanceId = linkedWalletId;
+
+        if (hasLinkedWallets) {
+          try {
+            const tLw = await client.query(
+              'SELECT id FROM linked_wallets WHERE user_id = $1 AND provider_id = $2 AND account_number = $3 AND is_active = true LIMIT 1',
+              [userId, toLinkedWallet.provider_id, toLinkedWallet.account_number]
+            );
+            if (tLw.rows.length > 0) toLinkedWalletBalanceId = tLw.rows[0].id;
+          } catch (err) {
+            console.error('linked_wallets balance id lookup failed:', err.message);
+          }
+        }
       }
     } else if (toProvider && toRecipient) {
       if (toProvider === 'simplepay') {
@@ -484,6 +493,7 @@ exports.transferBetweenWallets = async (req, res) => {
           resolvedToProvider = r.provider_id;
           resolvedToAccountNumber = r.account_number;
           toWallet = { id: r.wallet_id, balance: r.wallet_balance };
+          toLinkedWalletBalanceId = r.linked_wallet_id || r.linked_account_id;
         }
       }
     }
@@ -616,7 +626,7 @@ exports.transferBetweenWallets = async (req, res) => {
     let newBalance = null;
     if (fromLinkedWallet && hasWalletBalances) {
       try {
-        const balResult = await db.query('SELECT balance FROM wallet_balances WHERE linked_wallet_id = $1', [fromLinkedWallet.id]);
+        const balResult = await db.query('SELECT balance FROM wallet_balances WHERE linked_wallet_id = $1', [fromLinkedWalletBalanceId]);
         newBalance = balResult.rows[0] ? Number(balResult.rows[0].balance) : null;
       } catch (err) {
         console.error('new balance check failed:', err.message);
@@ -630,30 +640,6 @@ exports.transferBetweenWallets = async (req, res) => {
     await client.query('COMMIT');
 
     if (hasWalletBalances) {
-      let fromLinkedWalletBalanceId = fromLinkedWallet.id;
-      let toLinkedWalletBalanceId = toLinkedWallet?.id || null;
-
-      if (hasLinkedWallets) {
-        try {
-          if (fromLinkedWallet) {
-            const fLw = await db.query(
-              'SELECT id FROM linked_wallets WHERE user_id = $1 AND provider_id = $2 AND account_number = $3 AND is_active = true LIMIT 1',
-              [userId, fromLinkedWallet.provider_id, fromLinkedWallet.account_number]
-            );
-            if (fLw.rows.length > 0) fromLinkedWalletBalanceId = fLw.rows[0].id;
-          }
-          if (toLinkedWallet) {
-            const tLw = await db.query(
-              'SELECT id FROM linked_wallets WHERE user_id = $1 AND provider_id = $2 AND account_number = $3 AND is_active = true LIMIT 1',
-              [userId, toLinkedWallet.provider_id, toLinkedWallet.account_number]
-            );
-            if (tLw.rows.length > 0) toLinkedWalletBalanceId = tLw.rows[0].id;
-          }
-        } catch (err) {
-          console.error('linked_wallets balance id lookup failed:', err.message);
-        }
-      }
-
       if (fromLinkedWallet) {
         try {
           await client.query(

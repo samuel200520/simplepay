@@ -106,11 +106,24 @@ exports.depositToGoal = async (req, res) => {
         sourceWallet = w.rows[0];
       } else if (String(source_wallet_id).startsWith('linked-')) {
         const linkedWalletId = String(source_wallet_id).split('-')[1];
+        const hasLinkedWallets = await db.getTableExists('linked_wallets');
+        let actualLinkedWalletId = linkedWalletId;
+        if (hasLinkedWallets) {
+          try {
+            const la = await db.query('SELECT provider_id, account_number FROM linked_accounts WHERE id = $1 AND user_id = $2', [linkedWalletId, userId]);
+            if (la.rows.length > 0) {
+              const lw = await db.query('SELECT id FROM linked_wallets WHERE user_id = $1 AND provider_id = $2 AND account_number = $3 AND is_active = true LIMIT 1', [userId, la.rows[0].provider_id, la.rows[0].account_number]);
+              if (lw.rows.length > 0) actualLinkedWalletId = lw.rows[0].id;
+            }
+          } catch (err) {
+            console.error('linked_wallets id lookup failed:', err.message);
+          }
+        }
         const hasWalletBalances = await db.getTableExists('wallet_balances');
         if (hasWalletBalances) {
           const balResult = await db.query(
             'SELECT balance FROM wallet_balances WHERE linked_wallet_id = $1',
-            [linkedWalletId]
+            [actualLinkedWalletId]
           );
           const linkedBalance = Number(balResult.rows[0]?.balance || 0);
           if (linkedBalance < amount) {
@@ -136,13 +149,26 @@ exports.depositToGoal = async (req, res) => {
 
     if (isLinkedSource) {
       const linkedWalletId = String(source_wallet_id).split('-')[1];
+      const hasLinkedWallets = await db.getTableExists('linked_wallets');
+      let actualLinkedWalletId = linkedWalletId;
+      if (hasLinkedWallets) {
+        try {
+          const la = await db.query('SELECT provider_id, account_number FROM linked_accounts WHERE id = $1 AND user_id = $2', [linkedWalletId, userId]);
+          if (la.rows.length > 0) {
+            const lw = await db.query('SELECT id FROM linked_wallets WHERE user_id = $1 AND provider_id = $2 AND account_number = $3 AND is_active = true LIMIT 1', [userId, la.rows[0].provider_id, la.rows[0].account_number]);
+            if (lw.rows.length > 0) actualLinkedWalletId = lw.rows[0].id;
+          }
+        } catch (err) {
+          console.error('linked_wallets id lookup failed:', err.message);
+        }
+      }
       const hasWalletBalances = await db.getTableExists('wallet_balances');
       if (hasWalletBalances) {
         await db.query(
           `INSERT INTO wallet_balances (linked_wallet_id, balance, currency, last_sync)
            VALUES ($1, 0 - $2, 'SLE', NOW())
            ON CONFLICT (linked_wallet_id) DO UPDATE SET balance = wallet_balances.balance + EXCLUDED.balance, last_sync = EXCLUDED.last_sync`,
-          [linkedWalletId, amount]
+          [actualLinkedWalletId, amount]
         );
       }
     } else {
@@ -203,11 +229,24 @@ exports.withdrawFromGoal = async (req, res) => {
         }
       } else if (String(destination_wallet_id).startsWith('linked-')) {
         const linkedWalletId = String(destination_wallet_id).split('-')[1];
+        const hasLinkedWallets = await db.getTableExists('linked_wallets');
+        let actualLinkedWalletId = linkedWalletId;
+        if (hasLinkedWallets) {
+          try {
+            const la = await db.query('SELECT provider_id, account_number FROM linked_accounts WHERE id = $1 AND user_id = $2', [linkedWalletId, userId]);
+            if (la.rows.length > 0) {
+              const lw = await db.query('SELECT id FROM linked_wallets WHERE user_id = $1 AND provider_id = $2 AND account_number = $3 AND is_active = true LIMIT 1', [userId, la.rows[0].provider_id, la.rows[0].account_number]);
+              if (lw.rows.length > 0) actualLinkedWalletId = lw.rows[0].id;
+            }
+          } catch (err) {
+            console.error('linked_wallets id lookup failed:', err.message);
+          }
+        }
         const hasWalletBalances = await db.getTableExists('wallet_balances');
         if (hasWalletBalances) {
           const balResult = await db.query(
             'SELECT balance FROM wallet_balances WHERE linked_wallet_id = $1',
-            [linkedWalletId]
+            [actualLinkedWalletId]
           );
           const linkedBalance = Number(balResult.rows[0]?.balance || 0);
           if (linkedBalance < amount) {
@@ -217,7 +256,7 @@ exports.withdrawFromGoal = async (req, res) => {
             `INSERT INTO wallet_balances (linked_wallet_id, balance, currency, last_sync)
              VALUES ($1, $2, 'SLE', NOW())
              ON CONFLICT (linked_wallet_id) DO UPDATE SET balance = wallet_balances.balance + EXCLUDED.balance, last_sync = EXCLUDED.last_sync`,
-            [linkedWalletId, amount]
+             [actualLinkedWalletId, amount]
           );
         }
       } else {
