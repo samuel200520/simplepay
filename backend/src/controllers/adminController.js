@@ -28,7 +28,7 @@ exports.getOverview = async (req, res) => {
        FROM wallets`
     );
     const linkedResult = await db.query(
-      `SELECT COUNT(*) as total_linked_accounts FROM linked_accounts WHERE is_active = true`
+      `SELECT COUNT(*) as total_linked_accounts FROM linked_wallets WHERE is_active = true`
     );
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -72,7 +72,7 @@ exports.getAllUsers = async (req, res) => {
              COUNT(DISTINCT la.id) as linked_accounts_count
       FROM users u
       LEFT JOIN wallets w ON w.user_id = u.id
-      LEFT JOIN linked_accounts la ON la.user_id = u.id AND la.is_active = true
+      LEFT JOIN linked_wallets la ON la.user_id = u.id AND la.is_active = true
     `;
     const params = [];
     if (search) {
@@ -113,14 +113,14 @@ exports.getUserDetail = async (req, res) => {
     }
 
     const linkedAccounts = await db.query(
-      'SELECT * FROM linked_accounts WHERE user_id = $1 AND is_active = true ORDER BY created_at DESC',
+      'SELECT * FROM linked_wallets WHERE user_id = $1 AND is_active = true ORDER BY created_at DESC',
       [id]
     );
 
     const walletBalances = await db.query(
       `SELECT wb.balance, wb.currency, wb.last_sync, la.provider_id, la.account_number
        FROM wallet_balances wb
-       JOIN linked_accounts la ON la.id = wb.linked_wallet_id
+       JOIN linked_wallets la ON la.id = wb.linked_wallet_id
        WHERE la.user_id = $1`,
       [id]
     );
@@ -266,7 +266,7 @@ exports.getWalletStats = async (req, res) => {
        FROM wallets`
     );
     const linkedResult = await db.query(
-      `SELECT COUNT(*) as total_linked FROM linked_accounts WHERE is_active = true`
+      `SELECT COUNT(*) as total_linked FROM linked_wallets WHERE is_active = true`
     );
     const walletActivities = await db.query(
       `SELECT 
