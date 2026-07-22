@@ -67,11 +67,9 @@ exports.getWalletCards = async (req, res) => {
             [allWalletIds]
           );
           for (const row of balResult.rows) {
-            if (linkedWalletIdMap[row.linked_wallet_id] !== undefined) {
-              const laId = Object.keys(linkedWalletIdMap).find(key => linkedWalletIdMap[key] === row.linked_wallet_id);
-              if (laId) {
-                balanceMap[parseInt(laId)] = { balance: Number(row.balance), currency: row.currency, lastSync: row.last_sync };
-              }
+            const laId = Object.keys(linkedWalletIdMap).find(key => linkedWalletIdMap[key] === row.linked_wallet_id);
+            if (laId) {
+              balanceMap[parseInt(laId)] = { balance: Number(row.balance), currency: row.currency, lastSync: row.last_sync };
             } else if (linkedIds.includes(row.linked_wallet_id)) {
               balanceMap[row.linked_wallet_id] = { balance: Number(row.balance), currency: row.currency, lastSync: row.last_sync };
             }
@@ -594,9 +592,6 @@ exports.transferBetweenWallets = async (req, res) => {
       }
       creditedInternally = true;
     } else if (toLinkedWallet) {
-      if (toWallet) {
-        await client.query('UPDATE wallets SET balance = balance + $1 WHERE id = $2', [transferAmount, toWallet.id]);
-      }
       if (hasWalletTransactions) {
         await client.query(
           `INSERT INTO wallet_transactions
@@ -605,7 +600,7 @@ exports.transferBetweenWallets = async (req, res) => {
              from_linked_wallet_id, to_linked_wallet_id, status, note)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
           [
-            toWallet?.id || fromWallet.id, toUserId || userId, 'transfer_in', transferAmount, toWallet?.currency || 'SLE',
+            fromWallet.id, toUserId || userId, 'transfer_in', transferAmount, toWallet?.currency || fromWallet.currency || 'SLE',
             0, transferAmount, reference, fromProvider, resolvedToProvider,
             fromWallet.id, toWallet?.id || null, fromLinkedWallet?.id || null, toLinkedWallet.id,
             'completed', note || null

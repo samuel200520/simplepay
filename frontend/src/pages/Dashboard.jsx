@@ -472,13 +472,13 @@ export default function Dashboard() {
               value={recipient}
               onChange={e => setRecipient(e.target.value)}
             />
-            <div style={{ ...s.sectionTitle, marginTop: '12px' }}>Purpose of Payment (optional)</div>
+            <div style={{ ...s.sectionTitle, marginTop: '12px' }}>Purpose of Payment</div>
             <select
               style={s.input}
               value={purpose}
               onChange={e => setPurpose(e.target.value)}
             >
-              <option value="">Select purpose (optional)</option>
+              <option value="">Select purpose</option>
               {['Food', 'Transport', 'School Fees', 'Rent', 'Medical', 'Business', 'Family Support', 'Shopping', 'Gift', 'Utilities', 'Investment', 'Other'].map(p => (
                 <option key={p} value={p}>{p}</option>
               ))}
