@@ -22,6 +22,11 @@ export default function Admin() {
   const [topUsers, setTopUsers] = useState([]);
 
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [actionMsg, setActionMsg] = useState('');
+  const [userDetail, setUserDetail] = useState(null);
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
     if (token) {
