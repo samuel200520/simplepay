@@ -16,10 +16,6 @@ export default function Admin() {
   const [transactions, setTransactions] = useState([]);
   const [providers, setProviders] = useState([]);
   const [dailyStats, setDailyStats] = useState([]);
-  const [walletStats, setWalletStats] = useState(null);
-  const [savingsOverview, setSavingsOverview] = useState(null);
-  const [reversalStats, setReversalStats] = useState([]);
-  const [topUsers, setTopUsers] = useState([]);
 
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -643,13 +639,4 @@ const styles = {
   detailItem: { display: 'flex', flexDirection: 'column', gap: '4px' },
   detailLabel: { fontSize: '12px', color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px' },
   detailValue: { fontSize: '15px', fontWeight: '500', color: '#e0e0e0' },
-  emptyText: { color: '#888', fontSize: '14px', fontStyle: 'italic' },
-  chartCard: { background: '#1a1a1a', borderRadius: '12px', padding: '20px', boxShadow: '0 4px 16px rgba(0,0,0,0.35)', border: '1px solid #333', marginBottom: '20px' },
-  chartTitle: { fontSize: '16px', fontWeight: 600, marginBottom: '16px', color: 'white' },
-  chartContainer: { height: '300px', display: 'flex', alignItems: 'flex-end' },
-  barChart: { display: 'flex', alignItems: 'flex-end', gap: '4px', height: '100%', width: '100%' },
-  barWrapper: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end' },
-  bar: { width: '100%', maxWidth: '40px', borderRadius: '4px 4px 0 0', minHeight: '4px', background: '#1a6b3c', transition: 'height 0.3s' },
-  barLabel: { fontSize: '10px', color: '#888', marginTop: '2px', transform: 'rotate(-45deg)', whiteSpace: 'nowrap' },
-  statsRow: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px' },
 };
