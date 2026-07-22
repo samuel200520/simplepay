@@ -27,6 +27,10 @@ exports.sendMoney = async (req, res) => {
     return res.status(400).json({ error: 'Minimum transfer amount is NLe 5' });
   }
 
+  if (!purpose || String(purpose).trim() === '') {
+    return res.status(400).json({ error: 'Purpose of payment is required' });
+  }
+
   if (providerPrefixes[to_provider]) {
     const prefix = getCleanPrefix(recipient);
     if (!providerPrefixes[to_provider].includes(prefix)) {

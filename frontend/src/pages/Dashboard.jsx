@@ -524,6 +524,10 @@ export default function Dashboard() {
             setError('Please select FROM wallet, TO destination, and enter amount (min NLe 5)');
             return;
           }
+          if (!purpose) {
+            setError('Please select a purpose for this transfer');
+            return;
+          }
           if (!toId.startsWith('linked-') && !toId.startsWith('simplepay-') && !recipient) {
             setError('Please enter recipient account / phone number');
             return;

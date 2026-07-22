@@ -240,6 +240,10 @@ exports.transferBetweenWallets = async (req, res) => {
     return res.status(400).json({ error: 'Minimum transfer amount is NLe 5' });
   }
 
+  if (!purpose || String(purpose).trim() === '') {
+    return res.status(400).json({ error: 'Purpose of payment is required' });
+  }
+
   const reference = 'SMP-' + uuidv4().replace(/-/g, '').slice(0, 12).toUpperCase();
 
   const hasLinkedWallets = await db.getTableExists('linked_wallets');
