@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = process.env.REACT_APP_API_URL || 'https://simplepay-aqqv.onrender.com/api';
+const API_URL = process.env.REACT_APP_API_URL || 'https://simplepay-backend.onrender.com/api';
 
 const client = axios.create({
   baseURL: API_URL,

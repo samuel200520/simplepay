@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
 
-const API_URL = process.env.REACT_APP_API_URL || 'https://simplepay-aqqv.onrender.com/api';
+const API_URL = process.env.REACT_APP_API_URL || 'https://simplepay-backend.onrender.com/api';
 const adminClient = axios.create({ baseURL: API_URL });
 
 const useAdminApi = (token) => {
