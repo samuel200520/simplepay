@@ -2,12 +2,24 @@ const db = require('../db');
 const jwt = require('jsonwebtoken');
 
 exports.login = async (req, res) => {
-  const { password } = req.body;
-  if (password !== process.env.ADMIN_PASSWORD) {
-    return res.status(401).json({ error: 'Incorrect admin password' });
+  try {
+    const { password } = req.body;
+    if (!password) {
+      return res.status(400).json({ error: 'Password is required' });
+    }
+    if (!process.env.ADMIN_PASSWORD) {
+      console.error('ADMIN_PASSWORD environment variable is not set');
+      return res.status(500).json({ error: 'Admin password not configured on server' });
+    }
+    if (password !== process.env.ADMIN_PASSWORD) {
+      return res.status(401).json({ error: 'Incorrect admin password' });
+    }
+    const token = jwt.sign({ isAdmin: true }, process.env.JWT_SECRET, { expiresIn: '8h' });
+    res.json({ token });
+  } catch (err) {
+    console.error('Admin login error:', err);
+    res.status(500).json({ error: 'Server error during admin login' });
   }
-  const token = jwt.sign({ isAdmin: true }, process.env.JWT_SECRET, { expiresIn: '8h' });
-  res.json({ token });
 };
 
 exports.getOverview = async (req, res) => {
@@ -217,6 +229,8 @@ exports.getProviderStats = async (req, res) => {
 exports.getDailyStats = async (req, res) => {
   try {
     const { days = 30 } = req.query;
+    // Use parameterized query instead of string interpolation for security
+    const dayInt = parseInt(days) || 30;
     const result = await db.query(
       `SELECT 
         DATE(created_at) as date,
@@ -225,34 +239,15 @@ exports.getDailyStats = async (req, res) => {
         COALESCE(SUM(fee), 0) as total_fee
        FROM transactions
        WHERE status = 'completed'
-       AND created_at >= NOW() - INTERVAL '${days} days'
+       AND created_at >= NOW() - INTERVAL '1 day' * $1
        GROUP BY DATE(created_at)
-       ORDER BY date ASC`
+       ORDER BY date ASC`,
+      [dayInt]
     );
     res.json({ daily_stats: result.rows });
   } catch (err) {
     console.error('Admin daily stats error:', err);
     res.status(500).json({ error: 'Could not fetch daily stats' });
-  }
-};
-
-exports.getProviderStats = async (req, res) => {
-  try {
-    const result = await db.query(
-      `SELECT 
-        from_provider,
-        COUNT(*) as transaction_count,
-        COALESCE(SUM(amount), 0) as total_volume,
-        COALESCE(SUM(fee), 0) as total_fee
-       FROM transactions
-       WHERE status = 'completed'
-       GROUP BY from_provider
-       ORDER BY total_volume DESC`
-    );
-    res.json({ providers: result.rows });
-  } catch (err) {
-    console.error('Admin provider stats error:', err);
-    res.status(500).json({ error: 'Could not fetch provider stats' });
   }
 };
 
