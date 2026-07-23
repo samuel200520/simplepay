@@ -1,30 +1,20 @@
-# TODO - SimplePay multi-wallet redesign
+# Forgot / Reset Password - ✅ COMPLETED
 
-## Step 1: Baseline + requirements mapping
-- [x] Inspect current backend routes/controllers and identify existing data flows (auth, linked_accounts, transactions, transfer, admin).
-- [x] Inspect current frontend/mobile transfer flow assumptions (single SimplePay wallet, PIN only in web).
+## Backend
+- [x] `authController.js` — added `forgotPassword` + `resetPassword` controllers (OTP: `1234`)
+- [x] `routes/auth.js` — added `POST /api/auth/forgot-password` + `POST /api/auth/reset-password`
 
-## Step 2: Design backend data model
-- [x] Define DB schema changes for multi-wallet (linked_wallets, wallet_balances, sync logs, wallet_transactions ledger).
-- [x] Decide how to represent provider legs vs internal transfers in the ledger.
+## Frontend Web
+- [x] `ForgotPassword.jsx` — phone input → success screen → auto-redirect to reset
+- [x] `ResetPassword.jsx` — OTP + new password + confirm → success screen
+- [x] `Login.jsx` — added "Forgot password?" link below password field
+- [x] `App.js` — added routes for `/forgot-password` and `/reset-password`
+- [x] `AuthContext.jsx` — added `forgotPassword` + `resetPassword` methods
 
-## Step 3: Implement adapter-based provider integration
-- [x] Create provider adapter registry + adapter interface.
-- [x] Implement initial "simulated" adapters for Orange/Afrimoney/QMoney/Bank/SimplePay.
+## Frontend Mobile (React Native)
+- [x] `ForgotPasswordScreen.js` — phone input → success screen → navigate to reset
+- [x] `ResetPasswordScreen.js` — OTP + new password + confirm → success screen
+- [x] `LoginScreen.js` — added "Forgot password?" link
+- [x] `App.js` — added screens to navigation stack
+- [x] `AuthContext.js` — added `forgotPassword` + `resetPassword` methods
 
-## Step 4: Add backend API endpoints
-- [x] Implement GET /api/wallets (wallet cards w/ cached balances + status).
-- [x] Implement POST /api/wallets/:walletId/sync (manual refresh).
-- [x] Implement POST /api/wallets/transfers (transfer between wallets).
-- [x] Implement GET /api/wallets/:walletId/transactions (history).
-
-## Step 5: Wire into transfer logic
-- [x] Replace old /api/transfer/send & /api/transfer/history usage (keep temporary compatibility if needed).
-- [x] Ensure wallet-to-wallet transfers are atomic (reserve + commit) using DB transactions.
-
-## Step 6: Keep existing product working during migration
-- [x] Add compatibility layer mapping old linked_accounts to linked_wallets.
-
-## Step 7: Testing + validation
-- [x] Add basic integration tests or runbook commands.
-- [x] Manual sanity checks: link wallet → wallet appears → sync updates → transfer updates both balances.

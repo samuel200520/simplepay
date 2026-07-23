@@ -53,8 +53,18 @@ export function AuthProvider({ children }) {
     setWallet(null);
   };
 
+  const forgotPassword = async (phone) => {
+    const res = await client.post('/auth/forgot-password', { phone });
+    return res.data;
+  };
+
+  const resetPassword = async (phone, otp, newPassword) => {
+    const res = await client.post('/auth/reset-password', { phone, otp, newPassword });
+    return res.data;
+  };
+
   return (
-    <AuthContext.Provider value={{ user, wallet, loading, login, register, logout, fetchProfile }}>
+    <AuthContext.Provider value={{ user, wallet, loading, login, register, logout, fetchProfile, forgotPassword, resetPassword }}>
       {children}
     </AuthContext.Provider>
   );

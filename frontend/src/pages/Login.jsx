@@ -35,6 +35,9 @@ export default function Login() {
           <input style={styles.input} type="tel" placeholder="077 123 456" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} required />
           <label style={styles.label}>Password</label>
           <input style={styles.input} type="password" placeholder="Your password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} required />
+          <div style={styles.forgotRow}>
+            <Link to="/forgot-password" style={styles.forgotLink}>Forgot password?</Link>
+          </div>
           <button style={styles.btn} type="submit" disabled={loading}>
             {loading ? 'Signing in...' : 'Sign in'}
           </button>
@@ -55,5 +58,7 @@ const styles = {
   input: { width: '100%', padding: '10px 12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '15px', boxSizing: 'border-box' },
   btn: { width: '100%', padding: '12px', background: '#1a6b3c', color: 'white', border: 'none', borderRadius: '8px', fontSize: '15px', fontWeight: '500', cursor: 'pointer', marginTop: '1.5rem' },
   errorBox: { background: '#fde8e8', color: '#a32d2d', padding: '10px 12px', borderRadius: '8px', fontSize: '13px', marginBottom: '1rem' },
+  forgotRow: { textAlign: 'right', marginTop: '8px' },
+  forgotLink: { fontSize: '13px', color: '#1a6b3c', textDecoration: 'none', cursor: 'pointer' },
   link: { textAlign: 'center', marginTop: '1rem', fontSize: '13px', color: '#888' },
 };
